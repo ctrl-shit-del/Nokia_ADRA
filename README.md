@@ -21,3 +21,7 @@ This project is an agent-based system focused on automated requirements processi
    ```bash
    python3 packages_agent.py
    ```
+3. View agent audit logs in the local database:
+   ```bash
+   sqlite3 adra_audit.db "SELECT item, attempt_num, status, content FROM events WHERE agent='packages_agent' ORDER BY id;"
+   ```
