@@ -1,7 +1,7 @@
 {
     "hardware": {
         "cpu_cores": 12,
-        "ram_gb": 32,
+        "ram_gb": 10,
         "disk_gb": 200,
         "disk_type": "SSD"
     },

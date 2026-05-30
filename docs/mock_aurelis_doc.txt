@@ -2,7 +2,7 @@ Nokia Aurelis Command Center Release R25.12 - Installation Prerequisites
 
 Hardware Requirements:
 The target server must have a minimum of 12 CPU cores.
-Memory allocation requires at least 32 GB of RAM.
+Memory allocation requires at least 10 GB of RAM.
 Storage must be a minimum of 200 GB, and it is strictly required to use SSDs. HDDs are not supported.
 Network configuration requires a minimum of 2 network interfaces.
 

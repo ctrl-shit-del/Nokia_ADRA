@@ -9,27 +9,31 @@ import datetime
 # ==========================================
 # 1. Configuration
 # ==========================================
-SSH_HOST     = "127.0.0.1"
-SSH_PORT     = 22
-SSH_USER     = "mystic"
+SSH_HOST = "127.0.0.1"
+SSH_PORT = 22
+SSH_USER = "mystic"
 
-# Set True if the SSH user has passwordless sudo configured.
-# Run: echo "mystic ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/mystic
-PASSWORDLESS_SUDO = True
+# Set True ONLY if sudoers has NOPASSWD configured for SSH_USER:
+#   echo "mystic ALL=(ALL) NOPASSWD:ALL" | sudo tee /etc/sudoers.d/mystic
+# When False (default), sudo -S reads the password from stdin — no TTY needed.
+PASSWORDLESS_SUDO = False
 
-OLLAMA_URL   = "http://localhost:11434/api/generate"
-MODEL_NAME   = "gemma4:31b-cloud"
+OLLAMA_URL  = "http://localhost:11434/api/generate"
+MODEL_NAME  = "gemma4:31b-cloud"
 
-MAX_RETRIES  = 5    # LLM-guided retry attempts per failing command
-DB_PATH      = "adra_audit.db"
+MAX_RETRIES = 5
+DB_PATH     = "adra_audit.db"
 
 # ==========================================
 # 2. Skills Library
 # ==========================================
-# Each skill defines check / install (per-OS) / verify commands.
-# install["all"] is used when the command is OS-agnostic.
-# Add new packages here — the Requirements Agent will eventually
-# auto-generate these from the Nokia docs.
+# Rules for writing skill commands:
+# - Add "sudo" explicitly to commands that write to system paths (/etc, /usr, ...)
+#   or call apt-get / yum / systemctl.
+# - Do NOT add sudo to: curl (downloading to /tmp), chmod on /tmp files,
+#   check_cmd, verify_cmd.
+# - Avoid "cmd1 | sudo cmd2" pipelines — split them into two separate steps
+#   so the retry loop can target individual failures.
 
 SKILLS: dict[str, dict] = {
     "python": {
@@ -37,11 +41,11 @@ SKILLS: dict[str, dict] = {
         "check_cmd":   "python3 --version 2>&1",
         "install": {
             "ubuntu": [
-                "apt-get update -y",
-                "apt-get install -y python3 python3-pip python3-venv",
+                "sudo apt-get update -y",
+                "sudo apt-get install -y python3 python3-pip python3-venv",
             ],
             "rhel": [
-                "yum install -y python3 python3-pip",
+                "sudo yum install -y python3 python3-pip",
             ],
         },
         "verify_cmd": "python3 --version 2>&1",
@@ -52,24 +56,25 @@ SKILLS: dict[str, dict] = {
         "check_cmd":   "docker --version 2>&1",
         "install": {
             "ubuntu": [
-                "apt-get update -y",
-                "apt-get install -y ca-certificates curl gnupg",
-                "install -m 0755 -d /etc/apt/keyrings",
-                "curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg",
-                "chmod a+r /etc/apt/keyrings/docker.gpg",
-                # VERSION_CODENAME picks the right repo for Ubuntu 22/24/26
-                'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] '
-                'https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" '
-                '| tee /etc/apt/sources.list.d/docker.list > /dev/null',
-                "apt-get update -y",
-                "apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
-                "systemctl enable docker --now 2>&1 || true",
+                "sudo apt-get update -y",
+                "sudo apt-get install -y ca-certificates curl gnupg",
+                "sudo install -m 0755 -d /etc/apt/keyrings",
+                # Download GPG key to /tmp first, then process with sudo separately
+                # (avoids "cmd | sudo cmd" which our sudo -S handler can't intercept mid-pipe)
+                "curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /tmp/docker.gpg",
+                "sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg /tmp/docker.gpg",
+                "sudo chmod a+r /etc/apt/keyrings/docker.gpg",
+                # sudo bash -c wraps the whole echo+redirect so only one sudo call is needed
+                'sudo bash -c \'echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable" > /etc/apt/sources.list.d/docker.list\'',
+                "sudo apt-get update -y",
+                "sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
+                "sudo systemctl enable docker --now 2>&1 || true",
             ],
             "rhel": [
-                "yum install -y yum-utils",
-                "yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo",
-                "yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
-                "systemctl enable docker --now",
+                "sudo yum install -y yum-utils",
+                "sudo yum-config-manager --add-repo https://download.docker.com/linux/centos/docker-ce.repo",
+                "sudo yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin",
+                "sudo systemctl enable docker --now",
             ],
         },
         "verify_cmd": "docker --version 2>&1",
@@ -80,22 +85,18 @@ SKILLS: dict[str, dict] = {
         "check_cmd":   "kubectl version --client 2>&1",
         "install": {
             "ubuntu": [
-                "apt-get update -y",
-                "apt-get install -y apt-transport-https ca-certificates curl gpg",
-                "curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg",
-                'echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] '
-                'https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" '
-                '| tee /etc/apt/sources.list.d/kubernetes.list',
-                "apt-get update -y",
-                "apt-get install -y kubectl",
+                "sudo apt-get update -y",
+                "sudo apt-get install -y apt-transport-https ca-certificates curl gpg",
+                # Download key to /tmp, then sudo-process it
+                "curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key -o /tmp/k8s.gpg",
+                "sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s.gpg",
+                'sudo bash -c \'echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" > /etc/apt/sources.list.d/kubernetes.list\'',
+                "sudo apt-get update -y",
+                "sudo apt-get install -y kubectl",
             ],
             "rhel": [
-                "printf '[kubernetes]\\nname=Kubernetes\\n"
-                "baseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/\\n"
-                "enabled=1\\ngpgcheck=1\\n"
-                "gpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key\\n'"
-                " | tee /etc/yum.repos.d/kubernetes.repo",
-                "yum install -y kubectl",
+                "sudo bash -c 'printf \"[kubernetes]\\nname=Kubernetes\\nbaseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/\\nenabled=1\\ngpgcheck=1\\ngpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key\\n\" > /etc/yum.repos.d/kubernetes.repo'",
+                "sudo yum install -y kubectl",
             ],
         },
         "verify_cmd": "kubectl version --client 2>&1",
@@ -105,11 +106,13 @@ SKILLS: dict[str, dict] = {
         "description": "Helm — Kubernetes package manager",
         "check_cmd":   "helm version --short 2>&1",
         "install": {
-            # Helm's official install script works on both Ubuntu and RHEL
+            # No sudo on curl/chmod — they write to /tmp.
+            # The script itself calls sudo internally for the final move to /usr/local/bin.
+            # We run the script as root via sudo bash so it doesn't re-prompt.
             "all": [
                 "curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o /tmp/get_helm.sh",
                 "chmod +x /tmp/get_helm.sh",
-                "bash /tmp/get_helm.sh",
+                "sudo bash /tmp/get_helm.sh",
             ],
         },
         "verify_cmd": "helm version --short 2>&1",
@@ -121,12 +124,6 @@ SKILLS: dict[str, dict] = {
 # 3. JSON Parsing
 # ==========================================
 def extract_json(raw: str) -> dict:
-    """
-    Robustly parses JSON from LLM output that may contain:
-    - Markdown fences: ```json ... ```
-    - Thinking traces: <think>...</think>
-    - Prose before/after the JSON object
-    """
     if not raw:
         raise ValueError("Empty LLM response")
     text = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL).strip()
@@ -134,12 +131,60 @@ def extract_json(raw: str) -> dict:
     text = re.sub(r"```", "", text).strip()
     match = re.search(r"\{.*\}", text, re.DOTALL)
     if not match:
-        raise ValueError(f"No JSON object found in response:\n{raw[:300]}")
+        raise ValueError(f"No JSON object found:\n{raw[:300]}")
     return json.loads(match.group())
 
 
 # ==========================================
-# 4. LLM + SSH Helpers
+# 4. SSH Execution — sudo via stdin (no TTY needed)
+# ==========================================
+def execute_ssh(
+    client: paramiko.SSHClient,
+    command: str,
+    sudo_password: str | None = None,
+) -> tuple[int, str]:
+    """
+    Run a command over SSH.
+
+    sudo handling:
+    - Commands that start with 'sudo' use 'sudo -S -p ""' so sudo reads
+      the password from stdin rather than requiring a TTY.
+    - PASSWORDLESS_SUDO=True skips the stdin write entirely.
+    - Commands that don't start with 'sudo' run as-is.
+    """
+    display = command[:100] + ("..." if len(command) > 100 else "")
+    print(f"  [SSH] {display}")
+
+    if command.startswith("sudo ") and not PASSWORDLESS_SUDO:
+        # -S: read password from stdin
+        # -p '': empty prompt string so 'Password:' doesn't pollute our output capture
+        sudo_cmd = "sudo -S -p '' " + command[5:]
+        stdin, stdout, stderr = client.exec_command(sudo_cmd)
+        if sudo_password:
+            # Write password to stdin and close — sudo reads one line then proceeds
+            stdin.write(sudo_password + "\n")
+            stdin.flush()
+            stdin.channel.shutdown_write()
+    else:
+        stdin, stdout, stderr = client.exec_command(command)
+
+    exit_code = stdout.channel.recv_exit_status()
+    out = stdout.read().decode("utf-8", errors="replace").strip()
+    err = stderr.read().decode("utf-8", errors="replace").strip()
+
+    # Merge stdout + stderr — some tools write version info to stderr
+    combined = "\n".join(filter(None, [out, err]))
+
+    if exit_code != 0:
+        print(f"  [Exit {exit_code}] {combined[:200]}")
+    else:
+        print(f"  [OK] {combined[:80]}")
+
+    return exit_code, combined
+
+
+# ==========================================
+# 5. LLM Helper
 # ==========================================
 def call_llm(prompt: str) -> str | None:
     payload = {"model": MODEL_NAME, "prompt": prompt, "stream": False}
@@ -152,30 +197,12 @@ def call_llm(prompt: str) -> str | None:
         return None
 
 
-def execute_ssh(client: paramiko.SSHClient, command: str) -> tuple[int, str]:
-    """Run a command over SSH. Returns (exit_code, combined_output)."""
-    if PASSWORDLESS_SUDO and not command.startswith("sudo "):
-        command = f"sudo {command}"
-    print(f"  [SSH] {command[:100]}{'...' if len(command) > 100 else ''}")
-    _, stdout, stderr = client.exec_command(command)
-    exit_code = stdout.channel.recv_exit_status()
-    out = stdout.read().decode("utf-8").strip()
-    err = stderr.read().decode("utf-8").strip()
-    combined = (out + "\n" + err).strip() if err else out
-    if exit_code != 0:
-        print(f"  [Exit {exit_code}] {combined[:200]}")
-    else:
-        print(f"  [OK] {combined[:80]}")
-    return exit_code, combined
-
-
 # ==========================================
-# 5. SQLite Audit Logging
+# 6. SQLite Audit Logging
 # ==========================================
 def init_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.executescript("""
+    conn.executescript("""
         CREATE TABLE IF NOT EXISTS sessions (
             id          TEXT PRIMARY KEY,
             started_at  TEXT,
@@ -206,32 +233,31 @@ def log_event(conn, session_id, agent, event_type, item,
         "INSERT INTO events VALUES (NULL,?,?,?,?,?,?,?,?,?)",
         (session_id, datetime.datetime.now().isoformat(),
          agent, event_type, item, attempt_num,
-         str(content)[:4000], exit_code, status)
+         str(content)[:4000], exit_code, status),
     )
     conn.commit()
 
 
-def open_session(conn, session_id: str, host: str):
+def open_session(conn, session_id, host):
     conn.execute(
         "INSERT INTO sessions VALUES (?,?,NULL,?,?)",
-        (session_id, datetime.datetime.now().isoformat(), host, "running")
+        (session_id, datetime.datetime.now().isoformat(), host, "running"),
     )
     conn.commit()
 
 
-def close_session(conn, session_id: str, status: str):
+def close_session(conn, session_id, status):
     conn.execute(
         "UPDATE sessions SET ended_at=?, status=? WHERE id=?",
-        (datetime.datetime.now().isoformat(), status, session_id)
+        (datetime.datetime.now().isoformat(), status, session_id),
     )
     conn.commit()
 
 
 # ==========================================
-# 6. OS Detection
+# 7. OS Detection
 # ==========================================
 def detect_os_flavor(inventory: dict) -> str:
-    """Infer 'ubuntu' or 'rhel' from the os_name field in inventory.json."""
     for item in inventory.get("software", []):
         if item["item"] == "os_name" and item.get("found"):
             name = item["found"].lower()
@@ -239,21 +265,17 @@ def detect_os_flavor(inventory: dict) -> str:
                 return "ubuntu"
             if any(k in name for k in ("rhel", "red hat", "centos", "fedora", "rocky", "alma")):
                 return "rhel"
-    print("  [Warning] Could not detect OS flavor from inventory. Defaulting to ubuntu.")
+    print("  [Warning] Could not detect OS from inventory. Defaulting to ubuntu.")
     return "ubuntu"
 
 
 # ==========================================
-# 7. LLM Retry Loop
+# 8. LLM Retry Loop
 # ==========================================
 def ask_llm_for_fix(package: str, os_flavor: str, attempt_history: list[dict]) -> dict | None:
     """
-    Given the full attempt history for one failing command, ask the LLM to
-    diagnose the CURRENT (most recent) failure and suggest ONE shell command.
-
-    attempt_history entries:
-      {"attempt": int, "command": str, "exit_code": int, "output": str,
-       "llm_diagnosis": str | None, "llm_suggested": str | None}
+    Given the full attempt history for one failing command, ask the LLM
+    to diagnose the current error and suggest ONE shell command to fix it.
     """
     history_lines = []
     for entry in attempt_history:
@@ -272,18 +294,17 @@ def ask_llm_for_fix(package: str, os_flavor: str, attempt_history: list[dict]) -
 A deployment script failed while installing a package. Diagnose the error and suggest ONE shell command to resolve it.
 
 CONTEXT:
-  OS:        {os_flavor}
-  Package:   {package}
-  Attempt:   {current['attempt']} of {MAX_RETRIES}
+  OS:      {os_flavor}
+  Package: {package}
+  Attempt: {current['attempt']} of {MAX_RETRIES}
 
-ATTEMPT HISTORY (full chain, most recent is the current failure):
+ATTEMPT HISTORY (most recent is the current failure):
 {''.join(history_lines)}
 
 RULES:
-1. Focus on diagnosing the MOST RECENT error — not the original one.
-2. Do NOT suggest a command that already appears in the attempt history above.
-3. Suggest ONE concrete shell command. No multi-command strings unless unavoidable.
-4. Respond with ONLY a raw JSON object — no markdown fences, no explanation.
+1. Focus on the MOST RECENT error — not the original one.
+2. Do NOT suggest a command already in the attempt history above.
+3. Respond with ONLY a raw JSON object — no markdown fences, no preamble.
 
 JSON FORMAT:
 {{
@@ -304,7 +325,7 @@ JSON FORMAT:
 
 
 # ==========================================
-# 8. Single-Package Installer
+# 9. Single-Package Installer
 # ==========================================
 def get_install_commands(skill: dict, os_flavor: str) -> list[str] | None:
     install = skill.get("install", {})
@@ -318,20 +339,22 @@ def install_package(
     os_flavor: str,
     conn: sqlite3.Connection,
     session_id: str,
+    sudo_password: str | None,
 ) -> str:
     """
     Install one package end-to-end.
-    Returns: "success" | "failed" | "skipped" | "already_installed"
+    Returns: "success" | "already_installed" | "failed" | "skipped"
     """
     sep = "─" * 52
     print(f"\n┌{sep}┐")
     print(f"│  📦  {pkg_name}  —  {skill['description']:<40}│")
     print(f"└{sep}┘")
 
-    # Pre-flight check: is it already installed at an acceptable version?
+    # Pre-flight: is it already present?
     check_cmd = skill.get("check_cmd", "")
     if check_cmd:
-        exit_code, output = execute_ssh(client, check_cmd)
+        # Check commands never need sudo — just testing if binary is in PATH
+        exit_code, output = execute_ssh(client, check_cmd, sudo_password=None)
         if exit_code == 0:
             print(f"  [Already installed] {output}")
             log_event(conn, session_id, "packages_agent", "check",
@@ -340,31 +363,30 @@ def install_package(
 
     install_cmds = get_install_commands(skill, os_flavor)
     if not install_cmds:
-        print(f"  [Skip] No install commands defined for OS '{os_flavor}'.")
+        print(f"  [Skip] No install commands for OS '{os_flavor}'.")
         return "skipped"
 
     # ── Run install sequence ──────────────────────────────────────────────
-    for step_idx, base_cmd in enumerate(install_cmds):
+    for step_idx, cmd in enumerate(install_cmds):
         total = len(install_cmds)
         print(f"\n  ── Step {step_idx+1}/{total} ──")
         log_event(conn, session_id, "packages_agent", "command",
-                  pkg_name, 1, base_cmd, None, "running")
+                  pkg_name, 1, cmd, None, "running")
 
-        exit_code, output = execute_ssh(client, base_cmd)
+        exit_code, output = execute_ssh(client, cmd, sudo_password)
         log_event(conn, session_id, "packages_agent", "command",
-                  pkg_name, 1, base_cmd, exit_code,
+                  pkg_name, 1, cmd, exit_code,
                   "success" if exit_code == 0 else "fail")
 
         if exit_code == 0:
-            continue  # Step succeeded, move on
+            continue
 
-        # ── Step failed — LLM retry loop ─────────────────────────────────
+        # ── Step failed — enter LLM retry loop ───────────────────────────
         print(f"\n  ⚠  Step {step_idx+1} failed. Entering LLM retry loop (max {MAX_RETRIES} attempts)...")
 
-        # Attempt 1 is the original command that just failed
         attempt_history: list[dict] = [{
             "attempt":       1,
-            "command":       base_cmd,
+            "command":       cmd,
             "exit_code":     exit_code,
             "output":        output,
             "llm_diagnosis": None,
@@ -378,19 +400,18 @@ def install_package(
             llm_result = ask_llm_for_fix(pkg_name, os_flavor, attempt_history)
 
             if not llm_result:
-                print(f"  [LLM] No response. Skipping attempt {attempt_num}.")
+                print(f"  [LLM] No response on attempt {attempt_num}.")
                 log_event(conn, session_id, "packages_agent", "llm_error",
                           pkg_name, attempt_num, "No LLM response", None, "fail")
                 attempt_history.append({
-                    "attempt": attempt_num, "command": "(no LLM response)",
-                    "exit_code": -1, "output": "", "llm_diagnosis": None, "llm_suggested": None
+                    "attempt": attempt_num, "command": "(no response)",
+                    "exit_code": -1, "output": "", "llm_diagnosis": None, "llm_suggested": None,
                 })
                 continue
 
-            diagnosis      = llm_result.get("diagnosis", "")
-            suggested_cmd  = llm_result.get("suggested_command", "").strip()
-            reasoning      = llm_result.get("reasoning", "")
-            confidence     = llm_result.get("confidence", 0.0)
+            diagnosis     = llm_result.get("diagnosis", "")
+            suggested_cmd = llm_result.get("suggested_command", "").strip()
+            confidence    = llm_result.get("confidence", 0.0)
 
             print(f"  [LLM Diagnosis] {diagnosis}")
             print(f"  [LLM Suggests]  {suggested_cmd}")
@@ -400,14 +421,13 @@ def install_package(
                       pkg_name, attempt_num, json.dumps(llm_result), None, "retry")
 
             if not suggested_cmd:
-                print(f"  [LLM] Returned empty command. Skipping.")
+                print("  [LLM] Empty command. Skipping attempt.")
                 continue
 
-            # Record what the LLM said before we run the command
             attempt_history[-1]["llm_diagnosis"] = diagnosis
             attempt_history[-1]["llm_suggested"] = suggested_cmd
 
-            exit_code, output = execute_ssh(client, suggested_cmd)
+            exit_code, output = execute_ssh(client, suggested_cmd, sudo_password)
             log_event(conn, session_id, "packages_agent", "command",
                       pkg_name, attempt_num, suggested_cmd, exit_code,
                       "success" if exit_code == 0 else "fail")
@@ -426,20 +446,20 @@ def install_package(
                 resolved = True
                 break
             else:
-                print(f"  Still failing. Continuing retry loop...")
+                print("  Still failing. Continuing retry loop...")
 
         if not resolved:
             print(f"\n  ✗ All {MAX_RETRIES} attempts exhausted for step {step_idx+1} of '{pkg_name}'.")
-            print(f"    Check {DB_PATH} for the full LLM conversation history.")
+            print(f"    Check {DB_PATH} for the full LLM retry history.")
             log_event(conn, session_id, "packages_agent", "result",
                       pkg_name, MAX_RETRIES, "All retries exhausted", None, "exhausted")
             return "failed"
 
-    # ── Verify installation ───────────────────────────────────────────────
+    # ── Verify ───────────────────────────────────────────────────────────
     verify_cmd = skill.get("verify_cmd", "")
     if verify_cmd:
         print(f"\n  [Verify] {verify_cmd}")
-        exit_code, output = execute_ssh(client, verify_cmd)
+        exit_code, output = execute_ssh(client, verify_cmd, sudo_password=None)
         if exit_code == 0:
             print(f"  ✓ Verified: {output}")
             log_event(conn, session_id, "packages_agent", "result",
@@ -455,7 +475,7 @@ def install_package(
 
 
 # ==========================================
-# 9. Main
+# 10. Main
 # ==========================================
 def main():
     # ── Load inventory ────────────────────────────────────────────────────
@@ -469,14 +489,14 @@ def main():
     os_flavor = detect_os_flavor(inventory)
     print(f"\nDetected OS flavor: {os_flavor}")
 
-    # ── Separate hardware alerts from software install list ───────────────
+    # ── Hardware alerts — cannot auto-resolve ─────────────────────────────
     hardware_issues = [
-        item for item in inventory.get("hardware", [])
-        if item["status"] in ("Missing", "Insufficient")
+        i for i in inventory.get("hardware", [])
+        if i["status"] in ("Missing", "Insufficient")
     ]
     software_todo = [
-        item for item in inventory.get("software", [])
-        if item["status"] in ("Missing", "Insufficient")
+        i for i in inventory.get("software", [])
+        if i["status"] in ("Missing", "Insufficient")
     ]
 
     if hardware_issues:
@@ -485,11 +505,9 @@ def main():
         print("  These cannot be auto-resolved by this agent.")
         print("━" * 54)
         for item in hardware_issues:
-            print(f"  {item['item']:<12}  required={item['required']}  "
+            print(f"  {item['item']:<12} required={item['required']}  "
                   f"found={item['found']}  → {item['status']}")
-        print("\n  Provision adequate hardware before running installer_agent.py.")
         print("━" * 54)
-
         answer = input("\n  Continue with software installation anyway? (y/N): ").strip().lower()
         if answer != "y":
             print("Aborting.")
@@ -501,8 +519,12 @@ def main():
 
     print(f"\nSoftware to install / upgrade: {[i['item'] for i in software_todo]}")
 
-    # ── SSH + DB setup ────────────────────────────────────────────────────
-    ssh_password = getpass.getpass(f"\nEnter SSH password for {SSH_USER}@{SSH_HOST}: ")
+    # ── Credentials ───────────────────────────────────────────────────────
+    ssh_password  = getpass.getpass(f"\nEnter SSH password for {SSH_USER}@{SSH_HOST}: ")
+    # Same password used for sudo -S unless PASSWORDLESS_SUDO is True
+    sudo_password = None if PASSWORDLESS_SUDO else ssh_password
+
+    # ── Setup ─────────────────────────────────────────────────────────────
     conn = init_db()
     session_id = f"pkg_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
     open_session(conn, session_id, SSH_HOST)
@@ -516,21 +538,34 @@ def main():
         client.connect(hostname=SSH_HOST, port=SSH_PORT,
                        username=SSH_USER, password=ssh_password)
 
+        # Quick root check — if already root, sudo is unnecessary
+        _, uid = execute_ssh(client, "id -u", sudo_password=None)
+        if uid.strip() == "0":
+            print("  [Info] Running as root. sudo calls will succeed without a password.")
+
         for inv_item in software_todo:
             pkg_name = inv_item["item"]
-            skill = SKILLS.get(pkg_name)
+            skill    = SKILLS.get(pkg_name)
 
             if not skill:
-                print(f"\n  [Skip] No skill defined for '{pkg_name}'. "
-                      f"Add it to the SKILLS dict at the top of this file.")
+                print(f"\n  [Skip] No skill defined for '{pkg_name}'. Add it to SKILLS.")
                 results[pkg_name] = "no_skill"
                 log_event(conn, session_id, "packages_agent", "result",
                           pkg_name, 0, "No skill defined", None, "skipped")
                 continue
 
-            result = install_package(client, pkg_name, skill,
-                                     os_flavor, conn, session_id)
+            result = install_package(
+                client, pkg_name, skill, os_flavor,
+                conn, session_id, sudo_password
+            )
             results[pkg_name] = result
+            
+            if result in ("success", "already_installed"):
+                inv_item["status"] = "Met"
+                
+        # Save the updated inventory back to file so installer_agent can see the updates
+        with open("inventory.json", "w") as f:
+            json.dump(inventory, f, indent=4)
 
     except Exception as e:
         print(f"\nFatal SSH error: {e}")
@@ -540,7 +575,7 @@ def main():
         close_session(conn, session_id, overall)
         conn.close()
 
-    # ── Final summary ─────────────────────────────────────────────────────
+    # ── Summary ───────────────────────────────────────────────────────────
     print("\n")
     print("┌" + "─" * 52 + "┐")
     print("│          PACKAGES AGENT — FINAL SUMMARY            │")
@@ -554,25 +589,21 @@ def main():
         "no_skill":          "?",
     }
     for pkg, result in results.items():
-        icon = icons.get(result, "?")
-        print(f"  {icon}  {pkg:<18} {result}")
-
-    failed = [p for p, r in results.items() if r == "failed"]
-    no_skill = [p for p, r in results.items() if r == "no_skill"]
+        print(f"  {icons.get(result,'?')}  {pkg:<18} {result}")
 
     print()
+    failed   = [p for p, r in results.items() if r == "failed"]
+    no_skill = [p for p, r in results.items() if r == "no_skill"]
+
     if failed:
         print(f"  ✗ {len(failed)} package(s) failed after {MAX_RETRIES} retries: {failed}")
-        print(f"    Full LLM retry history saved to: {DB_PATH}")
+        print(f"    Full LLM retry history: {DB_PATH}")
         print("    ⚠  installer_agent.py should NOT run until these are resolved.")
     else:
-        print("  ✓ All packages installed successfully.")
-        print("    Ready to run: python3 installer_agent.py")
+        print("  ✓ All packages installed. Ready for: python3 installer_agent.py")
 
     if no_skill:
-        print(f"\n  ? Skills missing for: {no_skill}")
-        print("    Add entries to the SKILLS dict in this file.")
-
+        print(f"\n  ? Add skills for: {no_skill}")
     print()
 
 
