@@ -1,0 +1,15 @@
+{
+    "hardware": {
+        "cpu_cores": 12,
+        "ram_gb": 32,
+        "disk_gb": 200,
+        "disk_type": "SSD"
+    },
+    "software": {
+        "os_name": "Ubuntu 22.04 or RHEL 8",
+        "python": "3.10",
+        "docker": "20.10",
+        "kubernetes": "1.26",
+        "helm": "3.10"
+    }
+}

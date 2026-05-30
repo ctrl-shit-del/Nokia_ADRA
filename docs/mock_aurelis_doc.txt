@@ -1,0 +1,14 @@
+Nokia Aurelis Command Center Release R25.12 - Installation Prerequisites
+
+Hardware Requirements:
+The target server must have a minimum of 12 CPU cores.
+Memory allocation requires at least 32 GB of RAM.
+Storage must be a minimum of 200 GB, and it is strictly required to use SSDs. HDDs are not supported.
+Network configuration requires a minimum of 2 network interfaces.
+
+Software Requirements:
+The operating system must be Ubuntu 22.04 or RHEL 8 with a minimum kernel version of 5.15.
+Python version 3.10 or higher is required, along with the pip package manager.
+Docker must be installed, with a minimum version of 20.10.
+Kubernetes is required for orchestration, minimum version 1.26, utilizing the containerd runtime.
+Helm version 3.10 or higher must be present for chart deployments.

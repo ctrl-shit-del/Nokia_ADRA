@@ -1,0 +1,60 @@
+{
+    "hardware": [
+        {
+            "item": "cpu_cores",
+            "required": 12,
+            "found": 16,
+            "status": "Met"
+        },
+        {
+            "item": "ram_gb",
+            "required": 32,
+            "found": 14,
+            "status": "Insufficient"
+        },
+        {
+            "item": "disk_gb",
+            "required": 200,
+            "found": 476.9,
+            "status": "Met"
+        },
+        {
+            "item": "disk_type",
+            "required": "SSD",
+            "found": "SSD",
+            "status": "Met"
+        }
+    ],
+    "software": [
+        {
+            "item": "python",
+            "required": "3.10",
+            "found": "3.14.4",
+            "status": "Met"
+        },
+        {
+            "item": "docker",
+            "required": "20.10",
+            "found": null,
+            "status": "Missing"
+        },
+        {
+            "item": "kubernetes",
+            "required": "1.26",
+            "found": null,
+            "status": "Missing"
+        },
+        {
+            "item": "helm",
+            "required": "3.10",
+            "found": null,
+            "status": "Missing"
+        },
+        {
+            "item": "os_name",
+            "required": "Ubuntu 22.04 or RHEL 8",
+            "found": "Ubuntu 26.04 LTS",
+            "status": "Met"
+        }
+    ]
+}
