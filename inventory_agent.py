@@ -3,6 +3,7 @@ import re
 import paramiko
 import getpass
 import requests
+from adra_common import TokenCounter, call_llm as call_llamacpp, write_json
 
 # ==========================================
 # 1. Configuration
@@ -10,9 +11,6 @@ import requests
 SSH_HOST = "127.0.0.1"
 SSH_PORT = 22
 SSH_USER = "mystic"
-
-OLLAMA_URL = "http://localhost:11434/api/generate"
-MODEL_NAME = "gemma4:31b-cloud"
 
 # Every item in this list MUST have a non-null found value
 # before the planner is allowed to declare audit_complete = true.
@@ -111,20 +109,16 @@ def load_requirements():
         return None
 
 
+TOKENS = TokenCounter()
+
+
 def call_llm(prompt: str) -> str | None:
     """
-    Call Ollama. We do NOT pass format='json' here — it causes Gemma/Mistral
-    cloud models to sometimes return empty strings. We handle JSON parsing
-    ourselves in extract_json() which is more robust.
+    Call llama.cpp's OpenAI-compatible endpoint. JSON parsing stays local in
+    extract_json() because several models still wrap objects in prose/fences.
     """
-    payload = {"model": MODEL_NAME, "prompt": prompt, "stream": False}
-    try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        response.raise_for_status()
-        return response.json()["response"]
-    except requests.exceptions.RequestException as e:
-        print(f"  [LLM Error] {e}")
-        return None
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    return text
 
 
 def execute_ssh(client: paramiko.SSHClient, command: str) -> tuple[int, str]:
@@ -323,38 +317,65 @@ Respond with ONLY a raw JSON object — no markdown fences, no explanation:
     if raw_result:
         try:
             inv_json = extract_json(raw_result)
-            with open("inventory.json", "w") as f:
-                json.dump(inv_json, f, indent=4)
+            inv_json["malicious_flags"] = reqs.get("malicious_flags", [])
+            inv_json["source"] = reqs.get("source")
+            write_json("inventory.json", inv_json)
             print("Success! Saved to inventory.json")
             print(json.dumps(inv_json, indent=4))
+            return inv_json
         except (ValueError, json.JSONDecodeError) as e:
             print(f"Failed to parse gap table response: {e}")
             print("Raw response:")
             print(raw_result)
     else:
         print("LLM returned no response for gap table generation.")
+    return None
 
 
 # ==========================================
 # 7. Main
 # ==========================================
-def main():
+def run(context: dict | None = None) -> dict:
+    context = context or {}
+    TOKENS.prompt = 0
+    TOKENS.completion = 0
     reqs = load_requirements()
     if not reqs:
-        return
+        return {"status": "error", "error": "requirements.json not found", "tokens_used": TOKENS.as_dict()}
 
-    ssh_password = getpass.getpass(prompt=f"Enter SSH password for {SSH_USER}@{SSH_HOST}: ")
+    host = context.get("host", SSH_HOST)
+    port = int(context.get("port", SSH_PORT))
+    username = context.get("username", SSH_USER)
+    ssh_password = context.get("password")
+    if ssh_password is None:
+        ssh_password = getpass.getpass(prompt=f"Enter SSH password for {username}@{host}: ")
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     try:
-        client.connect(hostname=SSH_HOST, port=SSH_PORT, username=SSH_USER, password=ssh_password)
-        run_inventory_audit(client, reqs)
+        client.connect(hostname=host, port=port, username=username, password=ssh_password)
+        inventory = run_inventory_audit(client, reqs)
+        if not inventory:
+            return {"status": "error", "error": "inventory audit failed", "tokens_used": TOKENS.as_dict()}
+        return {
+            "status": "ok",
+            "result_path": "inventory.json",
+            "summary": {
+                "malicious_flags": inventory.get("malicious_flags", []),
+                "source": inventory.get("source"),
+            },
+            "tokens_used": TOKENS.as_dict(),
+        }
     except Exception as e:
         print(f"Connection/Execution failed: {e}")
+        return {"status": "error", "error": str(e), "tokens_used": TOKENS.as_dict()}
     finally:
         client.close()
+
+
+def main():
+    print(json.dumps(run(), indent=2))
 
 
 if __name__ == "__main__":

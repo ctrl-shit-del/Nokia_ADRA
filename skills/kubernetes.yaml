@@ -1,0 +1,15 @@
+description: kubectl - Kubernetes CLI client
+check_cmd: kubectl version --client 2>&1
+install:
+  ubuntu:
+    - sudo apt-get update -y
+    - sudo apt-get install -y apt-transport-https ca-certificates curl gpg
+    - curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.29/deb/Release.key -o /tmp/k8s.gpg
+    - sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg /tmp/k8s.gpg
+    - sudo bash -c 'echo "deb [signed-by=/etc/apt/keyrings/kubernetes-apt-keyring.gpg] https://pkgs.k8s.io/core:/stable:/v1.29/deb/ /" > /etc/apt/sources.list.d/kubernetes.list'
+    - sudo apt-get update -y
+    - sudo apt-get install -y kubectl
+  rhel:
+    - sudo bash -c 'printf "[kubernetes]\nname=Kubernetes\nbaseurl=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/\nenabled=1\ngpgcheck=1\ngpgkey=https://pkgs.k8s.io/core:/stable:/v1.29/rpm/repodata/repomd.xml.key\n" > /etc/yum.repos.d/kubernetes.repo'
+    - sudo yum install -y kubectl
+verify_cmd: kubectl version --client 2>&1

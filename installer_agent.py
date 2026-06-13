@@ -7,6 +7,8 @@ import requests
 import datetime
 import time
 from pathlib import Path
+from adra_common import TokenCounter, call_llm as call_llamacpp
+from packages_agent import append_learned_fix, find_learned_fix, load_skills, normalize_error_match
 
 # ==========================================
 # 1. Configuration
@@ -18,12 +20,10 @@ SSH_USER = "mystic"
 # Same flag as packages_agent — set True only if sudoers has NOPASSWD
 PASSWORDLESS_SUDO = False
 
-OLLAMA_URL  = "http://localhost:11434/api/generate"
-MODEL_NAME  = "gemma4:31b-cloud"
-
 MAX_RETRIES = 5
 DB_PATH     = "adra_audit.db"
 REPORT_PATH = "session_report.md"
+TOKENS      = TokenCounter()
 
 # How long to wait (seconds) after installation before running health checks
 POST_INSTALL_SETTLE_TIME = 30
@@ -228,14 +228,8 @@ def execute_ssh(
 # 6. LLM
 # ==========================================
 def call_llm(prompt: str) -> str | None:
-    payload = {"model": MODEL_NAME, "prompt": prompt, "stream": False}
-    try:
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=180)
-        resp.raise_for_status()
-        return resp.json()["response"]
-    except requests.exceptions.RequestException as e:
-        print(f"  [LLM Error] {e}")
-        return None
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    return text
 
 
 # ==========================================
@@ -368,6 +362,7 @@ def execute_step(
     sudo_password: str | None,
     step_num: int,
     total_steps: int,
+    skills: dict[str, dict] | None = None,
 ) -> tuple[bool, list[dict]]:
     """
     Run one installation step with LLM-guided retry on failure.
@@ -409,6 +404,28 @@ def execute_step(
             log_event(conn, session_id, "installer_agent", "step_verify",
                       name, 0, v_out, v_exit, "success" if v_exit == 0 else "warn")
         return True, attempt_history
+
+    skills = skills or {}
+    for pkg_name, skill in skills.items():
+        learned_cmd = find_learned_fix(skill, os_flavor, output)
+        if not learned_cmd:
+            continue
+        print(f"  [Learned Fix:{pkg_name}] Applying persisted fix: {learned_cmd}")
+        lf_exit, lf_output = execute_ssh(client, learned_cmd, sudo_password)
+        log_event(conn, session_id, "installer_agent", "learned_fix",
+                  name, 2, learned_cmd, lf_exit,
+                  "success" if lf_exit == 0 else "fail")
+        attempt_history.append({
+            "attempt": 2,
+            "command": learned_cmd,
+            "exit_code": lf_exit,
+            "output": lf_output,
+            "llm_diagnosis": f"matched learned_fixes entry from {pkg_name}.yaml",
+            "llm_suggested": learned_cmd,
+        })
+        if lf_exit == 0:
+            return True, attempt_history
+        break
 
     # ── Step failed — LLM retry loop ─────────────────────────────────────
     print(f"\n  ⚠  Step failed. Entering LLM retry loop (max {MAX_RETRIES} attempts)...")
@@ -462,6 +479,15 @@ def execute_step(
 
         if exit_code == 0:
             print(f"\n  ✓ Resolved on attempt {attempt_num}.")
+            append_learned_fix(
+                "installer",
+                skills.get("installer", {"description": "Installer learned fixes"}),
+                os_flavor,
+                normalize_error_match(attempt_history[0]["output"]),
+                attempt_history[0]["command"],
+                suggested_cmd,
+                float(confidence or 0.0),
+            )
             log_event(conn, session_id, "installer_agent", "step_result",
                       name, attempt_num, "Resolved by LLM", exit_code, "success")
             return True, attempt_history
@@ -693,7 +719,10 @@ def check_inventory_gates(inventory: dict) -> tuple[list[str], list[str]]:
 # ==========================================
 # 13. Main
 # ==========================================
-def main():
+def run(context: dict | None = None) -> dict:
+    context = context or {}
+    TOKENS.prompt = 0
+    TOKENS.completion = 0
     start_time = datetime.datetime.now()
 
     # ── Load inventory ────────────────────────────────────────────────────
@@ -702,7 +731,7 @@ def main():
             inventory = json.load(f)
     except FileNotFoundError:
         print("Error: inventory.json not found. Run inventory_agent.py first.")
-        return
+        return {"status": "error", "error": "inventory.json not found", "tokens_used": TOKENS.as_dict()}
 
     # Detect OS
     os_flavor = "ubuntu"
@@ -732,24 +761,31 @@ def main():
         if sw_issues:
             print("\n  🚫  INSTALLATION BLOCKED: Software dependencies not met.")
             print("  Resolve the software issues above and re-run packages_agent.py")
-            return
+            return {"status": "error", "error": "software dependencies not met", "tokens_used": TOKENS.as_dict()}
             
         # Only hardware issues
-        answer = input("\n  Continue with installation despite hardware issues? (y/N): ").strip().lower()
-        if answer != "y":
+        answer = context.get("acknowledge_hardware")
+        if answer is None:
+            answer = input("\n  Continue with installation despite hardware issues? (y/N): ").strip().lower() == "y"
+        if not answer:
             print("Aborting.")
-            return
+            return {"status": "error", "error": "hardware requirements not acknowledged", "tokens_used": TOKENS.as_dict()}
 
     print("\n✓ Pre-flight checks passed. Starting installation.\n")
 
     # ── Credentials ───────────────────────────────────────────────────────
-    ssh_password  = getpass.getpass(f"Enter SSH password for {SSH_USER}@{SSH_HOST}: ")
+    host = context.get("host", SSH_HOST)
+    port = int(context.get("port", SSH_PORT))
+    username = context.get("username", SSH_USER)
+    ssh_password = context.get("password")
+    if ssh_password is None:
+        ssh_password = getpass.getpass(f"Enter SSH password for {username}@{host}: ")
     sudo_password = None if PASSWORDLESS_SUDO else ssh_password
 
     # ── Setup ─────────────────────────────────────────────────────────────
     conn = init_db()
     session_id = f"inst_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    open_session(conn, session_id, SSH_HOST)
+    open_session(conn, session_id, host)
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -764,14 +800,15 @@ def main():
     print(sep)
 
     try:
-        client.connect(hostname=SSH_HOST, port=SSH_PORT,
-                       username=SSH_USER, password=ssh_password)
+        client.connect(hostname=host, port=port,
+                       username=username, password=ssh_password)
 
         _, uid = execute_ssh(client, "id -u", sudo_password=None)
         if uid.strip() == "0":
             print("  [Info] Running as root — sudo calls will not require a password.")
 
         # ── Execute steps ─────────────────────────────────────────────────
+        skills = load_skills()
         abort = False
         for idx, step in enumerate(INSTALL_STEPS):
             if abort:
@@ -782,7 +819,7 @@ def main():
 
             success, history = execute_step(
                 client, step, os_flavor, conn, session_id,
-                sudo_password, idx + 1, len(INSTALL_STEPS)
+                sudo_password, idx + 1, len(INSTALL_STEPS), skills
             )
 
             step_results.append({"step": step, "success": success, "history": history,
@@ -855,6 +892,23 @@ def main():
         print(f"\n  Full LLM retry history: {DB_PATH}")
         print(f"  Session report:         {REPORT_PATH}")
     print(sep)
+
+    return {
+        "status": "ok" if installation_ok else "error",
+        "result_path": REPORT_PATH,
+        "summary": {
+            "steps": {
+                r["step"]["name"]: "success" if r["success"] else "skipped" if r.get("skipped") else "failed"
+                for r in step_results
+            },
+            "verification_passed": installation_ok,
+        },
+        "tokens_used": TOKENS.as_dict(),
+    }
+
+
+def main():
+    print(json.dumps(run(), indent=2))
 
 
 if __name__ == "__main__":

@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ADRA Command Center</title>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            emerald: { 50: '#ecfdf5', 200: '#a7f3d0', 600: '#059669', 800: '#065f46' },
+            teal: { 50: '#f0fdfa', 200: '#99f6e4', 600: '#0d9488', 800: '#115e59' },
+            amber: { 50: '#fffbeb', 200: '#fde68a', 600: '#d97706', 800: '#92400e' },
+            rose: { 50: '#fff1f2', 200: '#fecdd3', 600: '#e11d48', 800: '#9f1239' },
+          },
+          fontFamily: {
+            sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'sans-serif'],
+            mono: ['JetBrains Mono', 'Fira Code', 'ui-monospace', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap');
+    
+    body { font-family: 'Inter', sans-serif; }
+    .font-mono { font-family: 'JetBrains Mono', monospace; }
+    
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased h-screen flex flex-col overflow-hidden">
+  <div id="root" class="h-full flex flex-col"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    // --- Icons ---
+    const IconCheck = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>;
+    const IconAlert = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>;
+    const IconX = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>;
+    const IconLoader = ({className="w-4 h-4 animate-spin"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>;
+    const IconFlag = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 21v-4m0 0V5a2 2 0 012-2h6.5l1 1H21l-3 6 3 6h-8.5l-1-1H5a2 2 0 00-2 2zm9-13.5V9" /></svg>;
+    const IconChevronDown = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>;
+    const IconChevronRight = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>;
+    const IconUpload = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>;
+    const IconServer = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>;
+
+    // --- Mock Data ---
+    const mockRequirements = {
+      hardware: { cpu_cores: 12, ram_gb: 10, disk_gb: 200, disk_type: "SSD" },
+      software: { os_name: "Ubuntu 22.04 or RHEL 8", python: "3.10", docker: "20.10", kubernetes: "1.26", helm: "3.10" },
+      flags: { helm: "Version 3.10 has known deprecation warnings in current edge deployment profiles." }
+    };
+
+    const mockInventory = [
+      { category: "hardware", item: "cpu_cores", required: "12", found: "16", status: "Met" },
+      { category: "hardware", item: "ram_gb", required: "10", found: "14", status: "Met" },
+      { category: "hardware", item: "disk_gb", required: "200", found: "114", status: "Insufficient" },
+      { category: "hardware", item: "disk_type", required: "SSD", found: "None", status: "Missing" },
+      { category: "software", item: "os_name", required: "Ubuntu 22.04 or RHEL 8", found: "Ubuntu 26.04 LTS", status: "Met" },
+      { category: "software", item: "python", required: "3.10", found: "3.14.4", status: "Met" },
+      { category: "software", item: "docker", required: "20.10", found: "None", status: "Missing" },
+      { category: "software", item: "kubernetes", required: "1.26", found: "None", status: "Missing" },
+      { category: "software", item: "helm", required: "3.10", found: "None", status: "Missing" }
+    ];
+
+    const mockPackages = [
+      { id: 1, name: "python", current: "3.14.4", required: "3.10", status: "Met" },
+      { id: 2, name: "docker", current: "None", required: "20.10", status: "Missing" },
+      { id: 3, name: "kubernetes", current: "None", required: "1.26", status: "Missing" },
+      { id: 4, name: "helm", current: "None", required: "3.10", status: "Missing", flagged: true, flagReason: "Version 3.10 has known deprecation warnings. Review required." },
+    ];
+
+    const mockSteps = [
+      { id: 1, name: "Check preconditions", status: "success" },
+      { id: 2, name: "Initialize package manager", status: "success" },
+      { id: 3, name: "Install Docker 20.10", status: "running" },
+      { 
+        id: 4, name: "Install Kubernetes 1.26", status: "failed",
+        attempts: [
+          { attempt: 1, command: "apt-get install -y kubeadm=1.26.0", output: "E: Version '1.26.0' for 'kubeadm' was not found", diagnosis: "Ubuntu 26.04 requires an updated apt repository for k8s 1.26." },
+          { attempt: 2, command: "curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.26/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg", output: "gpg: can't create '/etc/apt/keyrings/kubernetes-apt-keyring.gpg': Permission denied", diagnosis: "Missing sudo privileges for ring.gpg creation." },
+          { attempt: 3, command: "sudo curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.26/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg", output: "Success.", diagnosis: "Keyring updated. Proceeding with apt update." }
+        ]
+      },
+      { id: 5, name: "Install Helm 3.10", status: "pending" }
+    ];
+
+    const mockServers = [
+      { id: "srv-01", ip: "10.0.4.11", status: "Succeeded", time: "2m ago" },
+      { id: "srv-02", ip: "10.0.4.12", status: "Failed", time: "5m ago" },
+      { id: "srv-03", ip: "10.0.4.13", status: "Running", time: "Just now" },
+      { id: "srv-04", ip: "10.0.4.14", status: "Pending", time: "-" },
+    ];
+
+    // --- Shared Components ---
+    const StatusBadge = ({ status }) => {
+      let colors = "bg-slate-100 text-slate-600 border-slate-200";
+      let text = status;
+      if (status === 'Met' || status === 'success' || status === 'Succeeded') { colors = "bg-emerald-50 text-emerald-800 border-emerald-200"; text = "Met"; }
+      if (status === 'success') text = "Success";
+      if (status === 'Succeeded') text = "Succeeded";
+      if (status === 'Insufficient') { colors = "bg-amber-50 text-amber-800 border-amber-200"; }
+      if (status === 'Missing' || status === 'failed' || status === 'Failed') { colors = "bg-rose-50 text-rose-800 border-rose-200"; text = "Missing"; }
+      if (status === 'failed') text = "Failed";
+      if (status === 'Failed') text = "Failed";
+      if (status === 'running' || status === 'Running') { colors = "bg-teal-50 text-teal-800 border-teal-200"; text = "Running"; }
+      if (status === 'pending' || status === 'Pending') { colors = "bg-slate-50 text-slate-500 border-slate-200"; text = "Pending"; }
+      
+      return (
+        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${colors}`}>
+          {text}
+        </span>
+      );
+    };
+
+    const StatusIcon = ({ status }) => {
+      if (status === 'Met' || status === 'success') return <IconCheck className="w-4 h-4 text-emerald-600" />;
+      if (status === 'Insufficient') return <IconAlert className="w-4 h-4 text-amber-600" />;
+      if (status === 'Missing' || status === 'failed') return <IconX className="w-4 h-4 text-rose-600" />;
+      if (status === 'running') return <IconLoader className="w-4 h-4 text-teal-600 animate-spin" />;
+      return <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>;
+    };
+
+    // --- Tabs ---
+
+    const RequirementsTab = () => {
+      const [mode, setMode] = useState('profile');
+      const [profiles, setProfiles] = useState(['xyz26', 'xyz25', 'xyz24', 'xyz20']);
+      const [reqs, setReqs] = useState(mockRequirements);
+      const [loading, setLoading] = useState(false);
+
+      const runReqs = () => {
+        setLoading(true);
+        setTimeout(() => setLoading(false), 800);
+      };
+
+      return (
+        <div className="flex flex-col h-full gap-4">
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+            <div className="flex border-b border-slate-200 mb-4">
+              {['profile', 'upload', 'custom'].map(m => (
+                <button 
+                  key={m} 
+                  onClick={() => setMode(m)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${mode === m ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                >
+                  {m === 'profile' ? 'Choose Version' : m === 'upload' ? 'Upload Manual' : 'Custom Version'}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-end gap-4">
+              {mode === 'profile' && (
+                <div className="flex-1 max-w-xs">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Select Profile</label>
+                  <select className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-2 bg-slate-50 focus:outline-none focus:border-teal-500">
+                    {profiles.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                </div>
+              )}
+              {mode === 'upload' && (
+                <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50">
+                  <IconUpload className="w-6 h-6 mb-2" />
+                  <span className="text-sm">Drag and drop PDF/HTML, or click to browse</span>
+                </div>
+              )}
+              {mode === 'custom' && (
+                <div className="flex-1 flex gap-4">
+                  <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50">
+                    <IconUpload className="w-6 h-6 mb-2" />
+                    <span className="text-sm">Upload Manual</span>
+                  </div>
+                  <div className="flex-1 flex flex-col justify-end">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Save Profile As</label>
+                    <input type="text" placeholder="xyz26.5-custom" className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-teal-500" />
+                  </div>
+                </div>
+              )}
+              <div className="pb-0.5">
+                <button onClick={runReqs} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
+                  {loading && <IconLoader className="w-4 h-4 text-white" />}
+                  Extract Requirements
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 overflow-auto">
+            <div className="p-4 border-b border-slate-200 bg-slate-50 flex justify-between items-center sticky top-0">
+              <h3 className="font-semibold text-slate-800 text-sm">Extracted Requirements</h3>
+            </div>
+            <div className="p-0">
+              <table className="w-full text-left border-collapse">
+                <thead className="bg-slate-50 text-slate-500 text-xs uppercase sticky top-12 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Category</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Key</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="text-sm divide-y divide-slate-100">
+                  {Object.entries(reqs.hardware).map(([k, v]) => (
+                    <tr key={k} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2 text-slate-500">Hardware</td>
+                      <td className="px-4 py-2 font-medium text-slate-700">{k}</td>
+                      <td className="px-4 py-2 font-mono text-slate-900">{v}</td>
+                    </tr>
+                  ))}
+                  {Object.entries(reqs.software).map(([k, v]) => (
+                    <tr key={k} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2 text-slate-500">Software</td>
+                      <td className="px-4 py-2 font-medium text-slate-700 flex items-center gap-2">
+                        {k}
+                        {reqs.flags[k] && (
+                          <div className="group relative cursor-help flex items-center">
+                            <IconFlag className="w-3.5 h-3.5 text-amber-500" />
+                            <div className="absolute left-6 top-0 w-64 bg-slate-800 text-white text-xs p-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none z-20">
+                              {reqs.flags[k]}
+                            </div>
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 font-mono text-slate-900">{v}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const InventoryTab = () => {
+      const metCount = mockInventory.filter(i => i.status === 'Met').length;
+      return (
+        <div className="flex flex-col h-full gap-4">
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4 flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Target Host</label>
+              <input type="text" defaultValue="10.0.4.11" className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">User</label>
+              <input type="text" defaultValue="mystic" className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-medium text-slate-500 mb-1">Password / Key</label>
+              <input type="password" defaultValue="********" className="w-full text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" />
+            </div>
+            <button className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors">
+              Run Inventory
+            </button>
+          </div>
+
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+              <h3 className="font-semibold text-slate-800 text-sm">Gap Analysis</h3>
+              <div className="text-sm text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-sm">
+                <span className="font-medium text-slate-900">{metCount}</span> of {mockInventory.length} requirements met
+              </div>
+            </div>
+            <div className="overflow-auto flex-1">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200 w-10"></th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Item</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Required</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Found</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[13px] divide-y divide-slate-100">
+                  {mockInventory.map((item, i) => (
+                    <tr key={i} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2 text-center">
+                        <StatusIcon status={item.status} />
+                      </td>
+                      <td className="px-4 py-2 font-medium text-slate-800">{item.item}</td>
+                      <td className="px-4 py-2 font-mono text-slate-600">{item.required}</td>
+                      <td className={`px-4 py-2 font-mono ${item.status === 'Missing' ? 'text-slate-400' : 'text-slate-900'}`}>{item.found}</td>
+                      <td className="px-4 py-2">
+                        <StatusBadge status={item.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const PackagesTab = () => {
+      const hasInsufficientHardware = true;
+      return (
+        <div className="flex flex-col h-full gap-4">
+          {hasInsufficientHardware && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3 items-start shrink-0">
+              <IconAlert className="w-5 h-5 text-amber-600 mt-0.5" />
+              <div>
+                <h4 className="text-sm font-semibold text-amber-800">Hardware Insufficient</h4>
+                <p className="text-sm text-amber-700 mt-1">Target host does not meet the minimum disk_gb requirement (Found: 114, Required: 200). Installation may fail. Acknowledge to proceed.</p>
+                <div className="mt-2">
+                  <label className="flex items-center gap-2 text-sm text-amber-900 cursor-pointer">
+                    <input type="checkbox" className="rounded border-amber-400 text-amber-600 focus:ring-amber-500" />
+                    <span>I acknowledge the hardware risks</span>
+                  </label>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+              <h3 className="font-semibold text-slate-800 text-sm">Deployment Checklist</h3>
+              <button className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors shadow-sm">
+                Start Installation
+              </button>
+            </div>
+            <div className="overflow-auto flex-1 p-0">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-4 py-2 border-b border-slate-200 w-8"></th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Package</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Target Version</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[13px] divide-y divide-slate-100">
+                  {mockPackages.map((pkg) => (
+                    <tr key={pkg.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2">
+                        <input type="checkbox" defaultChecked={pkg.status !== 'Met'} disabled={pkg.status === 'Met'} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                      </td>
+                      <td className="px-4 py-2 font-medium text-slate-800 flex items-center gap-2">
+                        {pkg.name}
+                        {pkg.flagged && (
+                           <div className="group relative cursor-help flex items-center">
+                             <IconFlag className="w-3.5 h-3.5 text-amber-500" />
+                             <div className="absolute left-6 top-0 w-64 bg-slate-800 text-white text-xs p-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none z-20 whitespace-normal">
+                               {pkg.flagReason}
+                             </div>
+                           </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 font-mono text-slate-600">
+                        {pkg.current !== 'None' ? <span className="line-through opacity-50 mr-2">{pkg.current}</span> : null}
+                        {pkg.required}
+                      </td>
+                      <td className="px-4 py-2 text-slate-500">
+                        {pkg.status === 'Met' ? 'Already installed' : 'Will install'}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const InstallerTab = () => {
+      const [expanded, setExpanded] = useState({ 4: true });
+      
+      const toggle = (id) => setExpanded(prev => ({...prev, [id]: !prev[id]}));
+
+      return (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+            <h3 className="font-semibold text-slate-800 text-sm">Live Execution Log</h3>
+            <span className="font-mono text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded border border-teal-200 animate-pulse">Running</span>
+          </div>
+          <div className="overflow-auto flex-1 p-4 bg-slate-50/50">
+            <div className="space-y-4">
+              {mockSteps.map(step => (
+                <div key={step.id} className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
+                  <div 
+                    className={`px-4 py-3 flex items-center gap-3 cursor-pointer select-none ${step.status === 'failed' ? 'bg-rose-50/30' : ''}`}
+                    onClick={() => step.attempts && toggle(step.id)}
+                  >
+                    <div className="shrink-0 w-5 h-5 flex items-center justify-center">
+                      <StatusIcon status={step.status} />
+                    </div>
+                    <span className="font-medium text-sm text-slate-800 flex-1">{step.name}</span>
+                    <span className="shrink-0"><StatusBadge status={step.status} /></span>
+                    {step.attempts && (
+                      <span className="shrink-0 text-slate-400">
+                        {expanded[step.id] ? <IconChevronDown /> : <IconChevronRight />}
+                      </span>
+                    )}
+                  </div>
+                  
+                  {step.attempts && expanded[step.id] && (
+                    <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-4">
+                      {step.attempts.map((att, i) => (
+                        <div key={i} className="relative pl-6 border-l-2 border-slate-200">
+                          <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-slate-50"></div>
+                          <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Attempt {att.attempt}</div>
+                          <div className="bg-[#0F172A] rounded p-3 mb-2 overflow-x-auto shadow-inner">
+                            <div className="font-mono text-[12px] text-teal-400 mb-1">$ {att.command}</div>
+                            <div className={`font-mono text-[12px] whitespace-pre-wrap ${att.output === 'Success.' ? 'text-emerald-400' : 'text-slate-300'}`}>{att.output}</div>
+                          </div>
+                          <div className="bg-indigo-50 border border-indigo-100 rounded p-3 text-sm flex gap-3 items-start">
+                            <span className="shrink-0 mt-0.5">🧠</span>
+                            <div>
+                              <div className="font-semibold text-indigo-900 text-xs uppercase mb-0.5">Agent Diagnosis</div>
+                              <div className="text-indigo-800 leading-relaxed">{att.diagnosis}</div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      );
+    };
+
+    const ReportTab = () => {
+      return (
+        <div className="bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+            <h3 className="font-semibold text-slate-800 text-sm">Fleet Status</h3>
+            <button className="text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded shadow-sm">
+              Refresh
+            </button>
+          </div>
+          <div className="overflow-auto flex-1 p-0">
+             <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-4 py-2 border-b border-slate-200 w-8"></th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Server ID</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">IP Address</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Last Update</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200 text-right">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[13px] divide-y divide-slate-100">
+                  {mockServers.map((srv) => (
+                    <tr key={srv.id} className="hover:bg-slate-50/50 cursor-pointer">
+                      <td className="px-4 py-2"><IconServer className="w-4 h-4 text-slate-400" /></td>
+                      <td className="px-4 py-2 font-medium text-slate-800">{srv.id}</td>
+                      <td className="px-4 py-2 font-mono text-slate-600">{srv.ip}</td>
+                      <td className="px-4 py-2 text-slate-500">{srv.time}</td>
+                      <td className="px-4 py-2 text-right">
+                        <StatusBadge status={srv.status} />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+          </div>
+        </div>
+      );
+    }
+
+    // --- Main App ---
+    const App = () => {
+      const [activeTab, setActiveTab] = useState('requirements');
+      const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
+
+      // Note: Actual event source logic commented out for UI design evaluation focus, 
+      // but structural hooks remain as required.
+      useEffect(() => {
+        const source = new EventSource('/api/events');
+        source.addEventListener('tokens', event => {
+          try {
+            const usage = JSON.parse(event.data);
+            setTokens(t => ({
+              prompt: t.prompt + (usage.prompt || 0),
+              completion: t.completion + (usage.completion || 0),
+              total: t.total + (usage.total || 0)
+            }));
+          } catch(e){}
+        });
+        return () => source.close();
+      }, []);
+
+      const tabs = [
+        { id: 'requirements', label: 'Requirements' },
+        { id: 'inventory', label: 'Inventory' },
+        { id: 'packages', label: 'Packages' },
+        { id: 'installer', label: 'Installer' },
+        { id: 'report', label: 'Fleet Report' }
+      ];
+
+      return (
+        <div className="flex flex-col h-full bg-slate-100">
+          <header className="bg-slate-900 text-white shrink-0 shadow-md z-20">
+            <div className="px-6 py-3 flex items-center justify-between">
+              <h1 className="text-lg font-semibold tracking-tight flex items-center gap-2">
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+                ADRA <span className="font-normal text-slate-400 ml-1">Command Center</span>
+              </h1>
+            </div>
+            <nav className="px-6 flex gap-1">
+              {tabs.map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+                    activeTab === tab.id 
+                      ? 'border-emerald-400 text-white bg-slate-800 rounded-t' 
+                      : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 rounded-t'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </nav>
+          </header>
+
+          <main className="flex-1 overflow-hidden p-6 max-w-7xl mx-auto w-full">
+            {activeTab === 'requirements' && <RequirementsTab />}
+            {activeTab === 'inventory' && <InventoryTab />}
+            {activeTab === 'packages' && <PackagesTab />}
+            {activeTab === 'installer' && <InstallerTab />}
+            {activeTab === 'report' && <ReportTab />}
+          </main>
+
+          <footer className="bg-[#0F172A] text-slate-400 shrink-0 border-t border-slate-800 px-6 py-1.5 flex justify-between items-center text-xs font-mono">
+            <div className="flex items-center gap-4">
+              <span className="flex items-center gap-1.5 text-slate-500">
+                <div className="w-1.5 h-1.5 rounded-full bg-teal-500/50"></div>
+                Session Active
+              </span>
+            </div>
+            <div className="flex items-center gap-6">
+              <div className="flex gap-2 items-center">
+                <span className="text-slate-500 uppercase tracking-widest text-[10px]">Prompt</span>
+                <span className="text-slate-300 w-12 text-right">{tokens.prompt}</span>
+              </div>
+              <div className="flex gap-2 items-center">
+                <span className="text-slate-500 uppercase tracking-widest text-[10px]">Completion</span>
+                <span className="text-slate-300 w-12 text-right">{tokens.completion}</span>
+              </div>
+              <div className="flex gap-2 items-center bg-slate-800 px-3 py-1 rounded">
+                <span className="text-slate-400 uppercase tracking-widest text-[10px]">Total Tokens</span>
+                <span className={`w-14 text-right font-semibold ${tokens.total === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                  {tokens.total}
+                </span>
+              </div>
+            </div>
+          </footer>
+        </div>
+      );
+    };
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

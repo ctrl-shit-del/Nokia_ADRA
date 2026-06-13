@@ -1,0 +1,8 @@
+description: Helm - Kubernetes package manager
+check_cmd: helm version --short 2>&1
+install:
+  all:
+    - curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 -o /tmp/get_helm.sh
+    - chmod +x /tmp/get_helm.sh
+    - sudo bash /tmp/get_helm.sh
+verify_cmd: helm version --short 2>&1

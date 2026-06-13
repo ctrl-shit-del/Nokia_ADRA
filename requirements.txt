@@ -1,0 +1,10 @@
+chromadb
+fastapi
+paramiko
+pydantic
+pypdf
+python-multipart
+pyyaml
+requests
+sentence-transformers
+uvicorn

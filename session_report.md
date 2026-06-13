@@ -78,8 +78,12 @@ $ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 && chm
 exit: 1
 % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
                                  Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0100     97 100     97   0      0    119      0                              0100     97 100     97   0      0    119      0                              0
-  0      0
+
+  0      0   0      0   0      0      0      0                              0
+100     97 100     97   0      0    119      0                              0
+100     97 100     97   0      0    119      0                              0
+
+  0      0
 ```
 > 🤖 **LLM:** The curl command failed because the provided URL for kind v0.23.0 is invalid or returning a 404, resulting in a small HTML error page instead of the binary.
 > Suggested: `curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind`
@@ -90,8 +94,12 @@ $ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64 && chm
 exit: 1
 % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
                                  Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0100     98   0     98   0      0    536      0                              0100     98   0     98   0      0    535      0                              0
-  0      0
+
+  0      0   0      0   0      0      0      0                              0
+100     98   0     98   0      0    536      0                              0
+100     98   0     98   0      0    535      0                              0
+
+  0      0
 ```
 > 🤖 **LLM:** The provided download URLs are returning 404 Not Found errors because kind release binaries are hosted at /dl/vX.Y.Z/kind-linux-amd64, and the specified versions are either incorrect or unavailable at those paths.
 > Suggested: `curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind`
@@ -102,8 +110,12 @@ $ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chm
 exit: 1
 % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
                                  Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0100     97 100     97   0      0    659      0                              0100     97 100     97   0      0    659      0                              0
-  0      0
+
+  0      0   0      0   0      0      0      0                              0
+100     97 100     97   0      0    659      0                              0
+100     97 100     97   0      0    659      0                              0
+
+  0      0
 ```
 > 🤖 **LLM:** The installation script is consistently using invalid URLs that return 404 HTML pages instead of the binary, as the current 'kind' release naming convention requires a full semantic version (e.g., v0.24.0) but the specific paths being tried are not resolving.
 > Suggested: `curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64.tar.gz && tar -xvf /tmp/kind -C /tmp && sudo mv /tmp/kind /usr/local/bin/kind`
@@ -114,8 +126,12 @@ $ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64.tar.gz
 exit: 2
 % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
                                  Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0100    105   0    105   0      0    730      0                              0100    105   0    105   0      0    727      0                              0
-  0      0
+
+  0      0   0      0   0      0      0      0                              0
+100    105   0    105   0      0    730      0                              0
+100    105   0    105   0      0    727      0                              0
+
+  0      0
 ```
 > 🤖 **LLM:** The script is attempting to download the binary from an incorrect URL structure that returns a 404 HTML page, causing the subsequent tar extraction to fail with exit code 2.
 > Suggested: `curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind`
@@ -126,8 +142,12 @@ $ curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod 
 exit: 1
 % Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
                                  Dload  Upload  Total   Spent   Left   Speed
-  0      0   0      0   0      0      0      0                              0100     97 100     97   0      0    722      0                              0100     97 100     97   0      0    722      0                              0
-  0      0
+
+  0      0   0      0   0      0      0      0                              0
+100     97 100     97   0      0    722      0                              0
+100     97 100     97   0      0    722      0                              0
+
+  0      0
 ```
 
 ### ❌ Create kind cluster for Aurelis *(critical)*
@@ -175,5 +195,3 @@ ORDER BY id;
 ```
 
 ---
-*Generated by ADRA — Autonomous Deployment Readiness Agent*  
-*VIT Chennai × Nokia*

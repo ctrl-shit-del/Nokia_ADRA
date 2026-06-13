@@ -5,6 +5,10 @@ import paramiko
 import getpass
 import requests
 import datetime
+from pathlib import Path
+
+import yaml
+from adra_common import TokenCounter, call_llm as call_llamacpp, write_json
 
 # ==========================================
 # 1. Configuration
@@ -18,11 +22,10 @@ SSH_USER = "mystic"
 # When False (default), sudo -S reads the password from stdin — no TTY needed.
 PASSWORDLESS_SUDO = False
 
-OLLAMA_URL  = "http://localhost:11434/api/generate"
-MODEL_NAME  = "gemma4:31b-cloud"
-
 MAX_RETRIES = 5
 DB_PATH     = "adra_audit.db"
+SKILLS_DIR  = Path("skills")
+TOKENS      = TokenCounter()
 
 # ==========================================
 # 2. Skills Library
@@ -120,6 +123,67 @@ SKILLS: dict[str, dict] = {
 }
 
 
+def ensure_skill_files() -> None:
+    SKILLS_DIR.mkdir(exist_ok=True)
+    for name, skill in SKILLS.items():
+        path = SKILLS_DIR / f"{name}.yaml"
+        if not path.exists():
+            path.write_text(yaml.safe_dump(skill, sort_keys=False), encoding="utf-8")
+
+
+def load_skills() -> dict[str, dict]:
+    ensure_skill_files()
+    loaded: dict[str, dict] = {}
+    for path in sorted(SKILLS_DIR.glob("*.yaml")):
+        with path.open("r", encoding="utf-8") as f:
+            data = yaml.safe_load(f) or {}
+        loaded[path.stem] = data
+    return loaded
+
+
+def skill_path(pkg_name: str) -> Path:
+    return SKILLS_DIR / f"{pkg_name}.yaml"
+
+
+def find_learned_fix(skill: dict, os_flavor: str, error_output: str) -> str | None:
+    for fix in skill.get("learned_fixes", []) or []:
+        if fix.get("os") not in (None, os_flavor, "all"):
+            continue
+        matched = str(fix.get("matched_error", "")).strip()
+        if matched and matched.lower() in error_output.lower():
+            return str(fix.get("fixed_command", "")).strip() or None
+    return None
+
+
+def append_learned_fix(
+    pkg_name: str,
+    skill: dict,
+    os_flavor: str,
+    matched_error: str,
+    original_command: str,
+    fixed_command: str,
+    confidence: float,
+) -> None:
+    skill.setdefault("learned_fixes", [])
+    for fix in skill["learned_fixes"]:
+        if fix.get("os") == os_flavor and fix.get("matched_error") == matched_error:
+            return
+    skill["learned_fixes"].append({
+        "matched_error": matched_error,
+        "os": os_flavor,
+        "original_command": original_command,
+        "fixed_command": fixed_command,
+        "learned_at": datetime.datetime.now().isoformat(),
+        "confidence": float(confidence or 0.0),
+    })
+    skill_path(pkg_name).write_text(yaml.safe_dump(skill, sort_keys=False), encoding="utf-8")
+
+
+def normalize_error_match(output: str) -> str:
+    line = next((ln.strip() for ln in output.splitlines() if ln.strip()), output.strip())
+    return line[:160]
+
+
 # ==========================================
 # 3. JSON Parsing
 # ==========================================
@@ -187,14 +251,8 @@ def execute_ssh(
 # 5. LLM Helper
 # ==========================================
 def call_llm(prompt: str) -> str | None:
-    payload = {"model": MODEL_NAME, "prompt": prompt, "stream": False}
-    try:
-        resp = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        resp.raise_for_status()
-        return resp.json()["response"]
-    except requests.exceptions.RequestException as e:
-        print(f"  [LLM Error] {e}")
-        return None
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    return text
 
 
 # ==========================================
@@ -393,6 +451,25 @@ def install_package(
             "llm_suggested": None,
         }]
 
+        learned_cmd = find_learned_fix(skill, os_flavor, output)
+        if learned_cmd:
+            print(f"  [Learned Fix] Applying persisted fix: {learned_cmd}")
+            lf_exit, lf_output = execute_ssh(client, learned_cmd, sudo_password)
+            log_event(conn, session_id, "packages_agent", "learned_fix",
+                      pkg_name, 2, learned_cmd, lf_exit,
+                      "success" if lf_exit == 0 else "fail")
+            attempt_history.append({
+                "attempt": 2,
+                "command": learned_cmd,
+                "exit_code": lf_exit,
+                "output": lf_output,
+                "llm_diagnosis": "matched learned_fixes entry",
+                "llm_suggested": learned_cmd,
+            })
+            if lf_exit == 0:
+                print("  ✓ Resolved by learned_fixes without an LLM call.")
+                continue
+
         resolved = False
         for attempt_num in range(2, MAX_RETRIES + 1):
             print(f"\n  [Attempt {attempt_num}/{MAX_RETRIES}] Consulting LLM...")
@@ -443,6 +520,15 @@ def install_package(
 
             if exit_code == 0:
                 print(f"\n  ✓ Resolved on attempt {attempt_num}.")
+                append_learned_fix(
+                    pkg_name,
+                    skill,
+                    os_flavor,
+                    normalize_error_match(attempt_history[0]["output"]),
+                    attempt_history[0]["command"],
+                    suggested_cmd,
+                    float(confidence or 0.0),
+                )
                 resolved = True
                 break
             else:
@@ -477,17 +563,21 @@ def install_package(
 # ==========================================
 # 10. Main
 # ==========================================
-def main():
+def run(context: dict | None = None) -> dict:
+    context = context or {}
+    TOKENS.prompt = 0
+    TOKENS.completion = 0
     # ── Load inventory ────────────────────────────────────────────────────
     try:
         with open("inventory.json") as f:
             inventory = json.load(f)
     except FileNotFoundError:
         print("Error: inventory.json not found. Run inventory_agent.py first.")
-        return
+        return {"status": "error", "error": "inventory.json not found", "tokens_used": TOKENS.as_dict()}
 
     os_flavor = detect_os_flavor(inventory)
     print(f"\nDetected OS flavor: {os_flavor}")
+    skills = load_skills()
 
     # ── Hardware alerts — cannot auto-resolve ─────────────────────────────
     hardware_issues = [
@@ -508,26 +598,53 @@ def main():
             print(f"  {item['item']:<12} required={item['required']}  "
                   f"found={item['found']}  → {item['status']}")
         print("━" * 54)
-        answer = input("\n  Continue with software installation anyway? (y/N): ").strip().lower()
-        if answer != "y":
+        answer = context.get("acknowledge_hardware")
+        if answer is None:
+            answer = input("\n  Continue with software installation anyway? (y/N): ").strip().lower() == "y"
+        if not answer:
             print("Aborting.")
-            return
+            return {"status": "error", "error": "hardware requirements not acknowledged", "tokens_used": TOKENS.as_dict()}
 
     if not software_todo:
         print("\n✓ All software requirements already met. Nothing to install.")
-        return
+        return {"status": "ok", "result_path": "inventory.json", "summary": {"results": {}}, "tokens_used": TOKENS.as_dict()}
+
+    selected_packages = context.get("selected_packages")
+    if selected_packages:
+        selected = set(selected_packages)
+        software_todo = [item for item in software_todo if item["item"] in selected]
+
+    malicious_flags = inventory.get("malicious_flags", [])
+    acknowledged = set(context.get("malicious_flags_acknowledged", []))
+    blocked_flags = [
+        flag for flag in malicious_flags
+        if flag.get("item") in {item["item"] for item in software_todo}
+        and flag.get("item") not in acknowledged
+    ]
+    if blocked_flags:
+        return {
+            "status": "error",
+            "error": "flagged packages require acknowledgment before installation",
+            "malicious_flags": blocked_flags,
+            "tokens_used": TOKENS.as_dict(),
+        }
 
     print(f"\nSoftware to install / upgrade: {[i['item'] for i in software_todo]}")
 
     # ── Credentials ───────────────────────────────────────────────────────
-    ssh_password  = getpass.getpass(f"\nEnter SSH password for {SSH_USER}@{SSH_HOST}: ")
+    host = context.get("host", SSH_HOST)
+    port = int(context.get("port", SSH_PORT))
+    username = context.get("username", SSH_USER)
+    ssh_password = context.get("password")
+    if ssh_password is None:
+        ssh_password  = getpass.getpass(f"\nEnter SSH password for {username}@{host}: ")
     # Same password used for sudo -S unless PASSWORDLESS_SUDO is True
     sudo_password = None if PASSWORDLESS_SUDO else ssh_password
 
     # ── Setup ─────────────────────────────────────────────────────────────
     conn = init_db()
     session_id = f"pkg_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-    open_session(conn, session_id, SSH_HOST)
+    open_session(conn, session_id, host)
 
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -535,20 +652,21 @@ def main():
     results: dict[str, str] = {}
 
     try:
-        client.connect(hostname=SSH_HOST, port=SSH_PORT,
-                       username=SSH_USER, password=ssh_password)
+        client.connect(hostname=host, port=port,
+                       username=username, password=ssh_password)
 
         # Quick root check — if already root, sudo is unnecessary
         _, uid = execute_ssh(client, "id -u", sudo_password=None)
         if uid.strip() == "0":
             print("  [Info] Running as root. sudo calls will succeed without a password.")
 
+        retry_queue: list[dict] = []
         for inv_item in software_todo:
             pkg_name = inv_item["item"]
-            skill    = SKILLS.get(pkg_name)
+            skill    = skills.get(pkg_name)
 
             if not skill:
-                print(f"\n  [Skip] No skill defined for '{pkg_name}'. Add it to SKILLS.")
+                print(f"\n  [Skip] No skill file defined for '{pkg_name}'. Add skills/{pkg_name}.yaml.")
                 results[pkg_name] = "no_skill"
                 log_event(conn, session_id, "packages_agent", "result",
                           pkg_name, 0, "No skill defined", None, "skipped")
@@ -562,13 +680,30 @@ def main():
             
             if result in ("success", "already_installed"):
                 inv_item["status"] = "Met"
+            elif result == "failed":
+                retry_queue.append(inv_item)
+
+        if retry_queue:
+            print(f"\nRetrying Pass-1 failures: {[i['item'] for i in retry_queue]}")
+        for inv_item in retry_queue:
+            pkg_name = inv_item["item"]
+            skill = skills.get(pkg_name)
+            if not skill:
+                continue
+            result = install_package(
+                client, pkg_name, skill, os_flavor,
+                conn, session_id, sudo_password
+            )
+            results[pkg_name] = result
+            if result in ("success", "already_installed"):
+                inv_item["status"] = "Met"
                 
         # Save the updated inventory back to file so installer_agent can see the updates
-        with open("inventory.json", "w") as f:
-            json.dump(inventory, f, indent=4)
+        write_json("inventory.json", inventory)
 
     except Exception as e:
         print(f"\nFatal SSH error: {e}")
+        results["fatal_error"] = str(e)
     finally:
         client.close()
         overall = "failed" if any(r == "failed" for r in results.values()) else "success"
@@ -594,6 +729,7 @@ def main():
     print()
     failed   = [p for p, r in results.items() if r == "failed"]
     no_skill = [p for p, r in results.items() if r == "no_skill"]
+    fatal = "fatal_error" in results
 
     if failed:
         print(f"  ✗ {len(failed)} package(s) failed after {MAX_RETRIES} retries: {failed}")
@@ -605,6 +741,20 @@ def main():
     if no_skill:
         print(f"\n  ? Add skills for: {no_skill}")
     print()
+
+    return {
+        "status": "ok" if not failed and not no_skill and not fatal else "error",
+        "result_path": "inventory.json",
+        "summary": {
+            "results": results,
+            "malicious_flags_acknowledged": sorted(acknowledged),
+        },
+        "tokens_used": TOKENS.as_dict(),
+    }
+
+
+def main():
+    print(json.dumps(run(), indent=2))
 
 
 if __name__ == "__main__":

@@ -14,9 +14,11 @@ The deployment pipeline consists of four sequential agents:
 4. **`installer_agent.py`**: Runs the Nokia Aurelis installation script sequentially over SSH. Recovers from step failures using the LLM and runs a post-installation verification suite (generating `session_report.md`).
 
 ## Data & State
-- **Local LLM Layer**: Powered by Ollama (Qwen3, Mistral, or Gemma 4) ensuring no data leaves the internal network.
+- **Local LLM Layer**: Powered by `llama-server` through its OpenAI-compatible `/v1/chat/completions` endpoint. Set `ADRA_LLAMACPP_URL` and `ADRA_LLAMACPP_MODEL` to override the defaults.
 - **Audit Database**: A local SQLite database (`adra_audit.db`) logs every command, SSH output, and LLM exchange (diagnostic reasonings, commands chosen) for complete traceability and debugging.
+- **Requirement Profiles**: Known/custom versions are stored in `requirement_profiles.db`; selecting a known profile writes `requirements.json` without an LLM or vector DB call.
 - **Vector DB**: Chroma DB (stored in `db/chroma_db/`) used for document embedding and RAG queries.
+- **Skills Library**: Package installation skills live in `skills/*.yaml`; learned fixes are appended to these files after successful LLM-guided recovery.
 
 ## Setup & Running
 
@@ -24,19 +26,31 @@ The deployment pipeline consists of four sequential agents:
 ```bash
 python3 -m venv venv
 source venv/bin/activate
-pip install paramiko requests  # Ensure required libraries are met
+pip install -r requirements.txt
 ```
 
-**2. Run the Pipeline Sequentially:**
+**2. Start the Local LLM:**
+Ensure you have an OpenAI-compatible endpoint running (e.g., using `llama-server`).
+*Set `ADRA_LLAMACPP_URL` and `ADRA_LLAMACPP_MODEL` environment variables if your setup differs from the defaults.*
+
+**3. Run the Web UI/API (Recommended):**
+ADRA features a fully-integrated Command Center UI. Start it with Uvicorn:
+```bash
+uvicorn backend:app --reload
+```
+Then, open your browser and navigate to `http://127.0.0.1:8000` to access the ADRA Command Center. The UI allows you to run Requirements, Inventory, Packages, and Installer tasks sequentially.
+
+**4. Run Agents via CLI (Alternative):**
+You can also run the pipeline sequentially via the command line:
 ```bash
 python3 requirements_agent.py
 python3 inventory_agent.py
 python3 packages_agent.py
 python3 installer_agent.py
 ```
-*Note: The packages and installer agents will prompt you for the SSH credentials of the target server upon execution. They also feature interactive prompts to override deployment blockers.*
+*Note: The CLI agents will prompt you for the SSH credentials of the target server upon execution and feature interactive prompts to override deployment blockers.*
 
-**3. View Audit Logs & Output:**
+**5. View Audit Logs & Output:**
 Query the SQLite database to trace the LLM's automated diagnostic and repair steps:
 ```bash
 sqlite3 adra_audit.db "SELECT item, attempt_num, status, content FROM events WHERE agent='packages_agent' ORDER BY id;"

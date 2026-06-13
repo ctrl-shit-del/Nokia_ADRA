@@ -15,40 +15,40 @@
         {
             "item": "disk_gb",
             "required": 200,
-            "found": 96,
+            "found": 114,
             "status": "Insufficient"
         },
         {
             "item": "disk_type",
             "required": "SSD",
-            "found": "nvme0n1 0",
-            "status": "Met"
+            "found": null,
+            "status": "Missing"
         }
     ],
     "software": [
         {
             "item": "python",
             "required": "3.10",
-            "found": "Python 3.14.4",
+            "found": "3.14.4",
             "status": "Met"
         },
         {
             "item": "docker",
             "required": "20.10",
-            "found": "Docker version 29.5.2",
-            "status": "Met"
+            "found": null,
+            "status": "Missing"
         },
         {
             "item": "kubernetes",
             "required": "1.26",
-            "found": "v1.29.15",
-            "status": "Met"
+            "found": null,
+            "status": "Missing"
         },
         {
             "item": "helm",
             "required": "3.10",
-            "found": "v3.21.0",
-            "status": "Met"
+            "found": null,
+            "status": "Missing"
         },
         {
             "item": "os_name",

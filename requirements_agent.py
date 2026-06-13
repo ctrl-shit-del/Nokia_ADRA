@@ -1,22 +1,38 @@
 import os
 import json
 import re
-import requests
-import chromadb
-from sentence_transformers import SentenceTransformer
+import hashlib
+import argparse
+from adra_common import (
+    TokenCounter,
+    call_llm as call_llamacpp,
+    list_requirement_profiles,
+    load_requirement_profile,
+    save_requirement_profile,
+    write_json,
+)
 
 # ==========================================
 # 1. Configuration
 # ==========================================
-OLLAMA_URL     = "http://localhost:11434/api/generate"
-MODEL_NAME     = "gemma4:31b-cloud"
 EMBEDDING_MODEL = "all-MiniLM-L6-v2"
 DB_PATH        = "./db/chroma_db"
 DOCS_DIR       = "./docs"
 
-embedder       = SentenceTransformer(EMBEDDING_MODEL)
-chroma_client  = chromadb.PersistentClient(path=DB_PATH)
-collection     = chroma_client.get_or_create_collection(name="aurelis_docs")
+embedder = None
+collection = None
+
+
+def get_vector_collection():
+    global embedder, collection
+    if embedder is None or collection is None:
+        import chromadb
+        from sentence_transformers import SentenceTransformer
+
+        embedder = SentenceTransformer(EMBEDDING_MODEL)
+        chroma_client = chromadb.PersistentClient(path=DB_PATH)
+        collection = chroma_client.get_or_create_collection(name="aurelis_docs")
+    return embedder, collection
 
 # ==========================================
 # 2. JSON Parsing — same helper as inventory_agent
@@ -45,19 +61,16 @@ def extract_json(raw: str) -> dict:
 # ==========================================
 # 3. LLM Communication
 # ==========================================
+TOKENS = TokenCounter()
+
+
 def call_llm(prompt: str) -> str | None:
     """
-    Call Ollama without format='json' — we parse the response ourselves
+    Call llama.cpp's OpenAI-compatible endpoint and parse the response ourselves,
     which handles fence-wrapping and thinking models more reliably.
     """
-    payload = {"model": MODEL_NAME, "prompt": prompt, "stream": False}
-    try:
-        response = requests.post(OLLAMA_URL, json=payload, timeout=120)
-        response.raise_for_status()
-        return response.json()["response"]
-    except requests.exceptions.RequestException as e:
-        print(f"LLM Connection Error: {e}")
-        return None
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    return text
 
 
 # ==========================================
@@ -65,6 +78,7 @@ def call_llm(prompt: str) -> str | None:
 # ==========================================
 def ingest_documents():
     """Read .txt files from docs/, chunk by paragraph, store in ChromaDB."""
+    embedder, collection = get_vector_collection()
     documents, metadatas, ids = [], [], []
 
     for filename in os.listdir(DOCS_DIR):
@@ -89,6 +103,42 @@ def ingest_documents():
         print(f"Warning: No .txt files found in {DOCS_DIR}/")
 
 
+def extract_document_text(filepath: str, raw: bytes) -> str:
+    suffix = os.path.splitext(filepath)[1].lower()
+    if suffix == ".pdf":
+        try:
+            from pypdf import PdfReader
+        except ImportError as exc:
+            raise RuntimeError("PDF upload support requires pypdf. Install requirements.txt.") from exc
+        reader = PdfReader(filepath)
+        return "\n\n".join(page.extract_text() or "" for page in reader.pages)
+    return raw.decode("utf-8", errors="replace")
+
+
+def ingest_text_document(filepath: str) -> str:
+    """Read one text/html/pdf document, chunk it, and store chunks in ChromaDB."""
+    embedder, collection = get_vector_collection()
+    with open(filepath, "rb") as f:
+        raw = f.read()
+    digest = hashlib.sha256(raw).hexdigest()
+    text = extract_document_text(filepath, raw)
+    filename = os.path.basename(filepath)
+    chunks = [c.strip() for c in re.split(r"\n\s*\n|(?<=</p>)", text) if c.strip()]
+    documents, metadatas, ids = [], [], []
+    for i, chunk in enumerate(chunks):
+        documents.append(chunk)
+        metadatas.append({"source": filename, "chunk_index": i, "sha256": digest})
+        ids.append(f"{digest[:8]}_{filename}_chunk_{i}")
+    if documents:
+        collection.upsert(
+            documents=documents,
+            embeddings=embedder.encode(documents).tolist(),
+            metadatas=metadatas,
+            ids=ids,
+        )
+    return digest
+
+
 # ==========================================
 # 5. Targeted RAG Queries
 # ==========================================
@@ -98,6 +148,7 @@ def retrieve_context(queries: list[str], n_results: int = 5) -> str:
     Using multiple focused queries catches requirements that a single
     broad query often misses.
     """
+    embedder, collection = get_vector_collection()
     seen_ids = set()
     all_docs = []
 
@@ -121,7 +172,65 @@ def retrieve_context(queries: list[str], n_results: int = 5) -> str:
 # ==========================================
 # 6. Requirements Extraction
 # ==========================================
-def extract_requirements():
+def heuristic_malicious_flags(context: str) -> list[dict]:
+    flags: list[dict] = []
+    patterns = [
+        (
+            r"curl\s+http://\d{1,3}(?:\.\d{1,3}){3}/[^\s|;]+[^|\n;]*\|\s*sudo\s+bash",
+            "Installation command pipes an unsigned script from a raw IP address over HTTP into sudo bash",
+            "high",
+        ),
+        (
+            r"wget\s+http://\d{1,3}(?:\.\d{1,3}){3}/[^\s|;]+[^|\n;]*\|\s*sudo\s+bash",
+            "Installation command pipes an unsigned script from a raw IP address over HTTP into sudo bash",
+            "high",
+        ),
+        (
+            r"\b(setenforce\s+0|systemctl\s+stop\s+firewalld|iptables\s+-F)\b",
+            "Requirement disables or flushes host security controls",
+            "medium",
+        ),
+    ]
+    for pattern, reason, severity in patterns:
+        for match in re.finditer(pattern, context, flags=re.IGNORECASE):
+            excerpt = context[max(0, match.start() - 80):match.end() + 80].replace("\n", " ")
+            flags.append({
+                "item": match.group(0).strip()[:80],
+                "reason": reason,
+                "severity": severity,
+                "source_excerpt_ref": excerpt,
+            })
+    return flags
+
+
+def scan_malicious_flags(req_json: dict, context: str) -> list[dict]:
+    flags = heuristic_malicious_flags(context)
+    prompt = f"""You are reviewing deployment requirements for suspicious software or commands.
+
+REQUIREMENTS JSON:
+{json.dumps(req_json, indent=2)}
+
+SOURCE CONTEXT:
+{context[:12000]}
+
+Flag only concrete red flags such as unsigned downloads from raw IPs over HTTP,
+pastebin-style installers, commands disabling firewalls/SELinux, or packages from
+non-standard malicious-looking repositories.
+
+Respond with ONLY raw JSON:
+{{"malicious_flags":[{{"item":"...","reason":"...","severity":"low|medium|high","source_excerpt_ref":"..."}}]}}
+If nothing is suspicious, return {{"malicious_flags":[]}}."""
+    raw = call_llm(prompt)
+    if not raw:
+        return flags
+    try:
+        result = extract_json(raw)
+        return flags + result.get("malicious_flags", [])
+    except (ValueError, json.JSONDecodeError):
+        return flags
+
+
+def extract_requirements(source: str | None = None) -> dict | None:
     print("\n--- Starting Requirements Extraction ---")
 
     # Multiple targeted queries — each one retrieves different relevant chunks.
@@ -178,7 +287,7 @@ Output EXACTLY this structure (field names must match exactly):
 
     if not raw:
         print("LLM returned no response.")
-        return
+        return None
 
     try:
         req_json = extract_json(raw)
@@ -186,7 +295,7 @@ Output EXACTLY this structure (field names must match exactly):
         print(f"Failed to parse response: {e}")
         print("Raw response:")
         print(raw)
-        return
+        return None
 
     # Basic validation — warn if any expected fields are null
     missing_fields = []
@@ -199,16 +308,97 @@ Output EXACTLY this structure (field names must match exactly):
         print(f"Warning: The following fields were not found in the docs: {missing_fields}")
         print("Check that your docs/ folder contains the relevant sections.")
 
-    with open("requirements.json", "w") as f:
-        json.dump(req_json, f, indent=4)
+    req_json["malicious_flags"] = scan_malicious_flags(req_json, context)
+    if source:
+        req_json["source"] = source
+
+    write_json("requirements.json", req_json)
 
     print("\nSuccess! Saved to requirements.json:")
     print(json.dumps(req_json, indent=4))
+    return req_json
+
+
+def run(context: dict | None = None) -> dict:
+    context = context or {}
+    mode = context.get("mode", "docs")
+    TOKENS.prompt = 0
+    TOKENS.completion = 0
+
+    if mode in ("dropdown", "profile", "known"):
+        version = context.get("version")
+        if not version:
+            return {"status": "error", "error": "version is required", "tokens_used": TOKENS.as_dict()}
+        profile = load_requirement_profile(version)
+        if not profile:
+            return {
+                "status": "error",
+                "error": f"requirement profile not found: {version}",
+                "available_profiles": list_requirement_profiles(),
+                "tokens_used": TOKENS.as_dict(),
+            }
+        write_json("requirements.json", profile)
+        return {
+            "status": "ok",
+            "result_path": "requirements.json",
+            "summary": {
+                "source": f"profile:{version}",
+                "malicious_flags": profile.get("malicious_flags", []),
+            },
+            "tokens_used": TOKENS.as_dict(),
+        }
+
+    source_doc_sha = None
+    if context.get("document_path"):
+        source_doc_sha = ingest_text_document(context["document_path"])
+        source = f"upload:{os.path.basename(context['document_path'])}:{source_doc_sha[:8]}"
+    else:
+        ingest_documents()
+        source = "docs"
+
+    req_json = extract_requirements(source=source)
+    if not req_json:
+        return {"status": "error", "error": "requirements extraction failed", "tokens_used": TOKENS.as_dict()}
+
+    if context.get("save_profile") and context.get("version"):
+        save_requirement_profile(
+            context["version"],
+            req_json,
+            source_type="custom",
+            source_doc_sha=source_doc_sha,
+            created_by=context.get("created_by"),
+        )
+
+    return {
+        "status": "ok",
+        "result_path": "requirements.json",
+        "summary": {
+            "source": req_json.get("source"),
+            "malicious_flags": req_json.get("malicious_flags", []),
+        },
+        "tokens_used": TOKENS.as_dict(),
+    }
+
+
+def parse_args() -> dict:
+    parser = argparse.ArgumentParser(description="ADRA Requirements Agent")
+    parser.add_argument("--mode", default="docs", choices=["docs", "profile", "dropdown", "known", "upload"])
+    parser.add_argument("--version")
+    parser.add_argument("--document-path")
+    parser.add_argument("--save-profile", action="store_true")
+    parser.add_argument("--created-by")
+    args = parser.parse_args()
+    return {
+        "mode": "profile" if args.mode in ("dropdown", "known") else args.mode,
+        "version": args.version,
+        "document_path": args.document_path,
+        "save_profile": args.save_profile,
+        "created_by": args.created_by,
+    }
 
 
 # ==========================================
 # 7. Main
 # ==========================================
 if __name__ == "__main__":
-    ingest_documents()
-    extract_requirements()
+    print(json.dumps(run(parse_args()), indent=2))
