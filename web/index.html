@@ -55,54 +55,6 @@
     const IconUpload = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" /></svg>;
     const IconServer = ({className="w-4 h-4"}) => <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" /></svg>;
 
-    // --- Mock Data ---
-    const mockRequirements = {
-      hardware: { cpu_cores: 12, ram_gb: 10, disk_gb: 200, disk_type: "SSD" },
-      software: { os_name: "Ubuntu 22.04 or RHEL 8", python: "3.10", docker: "20.10", kubernetes: "1.26", helm: "3.10" },
-      flags: { helm: "Version 3.10 has known deprecation warnings in current edge deployment profiles." }
-    };
-
-    const mockInventory = [
-      { category: "hardware", item: "cpu_cores", required: "12", found: "16", status: "Met" },
-      { category: "hardware", item: "ram_gb", required: "10", found: "14", status: "Met" },
-      { category: "hardware", item: "disk_gb", required: "200", found: "114", status: "Insufficient" },
-      { category: "hardware", item: "disk_type", required: "SSD", found: "None", status: "Missing" },
-      { category: "software", item: "os_name", required: "Ubuntu 22.04 or RHEL 8", found: "Ubuntu 26.04 LTS", status: "Met" },
-      { category: "software", item: "python", required: "3.10", found: "3.14.4", status: "Met" },
-      { category: "software", item: "docker", required: "20.10", found: "None", status: "Missing" },
-      { category: "software", item: "kubernetes", required: "1.26", found: "None", status: "Missing" },
-      { category: "software", item: "helm", required: "3.10", found: "None", status: "Missing" }
-    ];
-
-    const mockPackages = [
-      { id: 1, name: "python", current: "3.14.4", required: "3.10", status: "Met" },
-      { id: 2, name: "docker", current: "None", required: "20.10", status: "Missing" },
-      { id: 3, name: "kubernetes", current: "None", required: "1.26", status: "Missing" },
-      { id: 4, name: "helm", current: "None", required: "3.10", status: "Missing", flagged: true, flagReason: "Version 3.10 has known deprecation warnings. Review required." },
-    ];
-
-    const mockSteps = [
-      { id: 1, name: "Check preconditions", status: "success" },
-      { id: 2, name: "Initialize package manager", status: "success" },
-      { id: 3, name: "Install Docker 20.10", status: "running" },
-      { 
-        id: 4, name: "Install Kubernetes 1.26", status: "failed",
-        attempts: [
-          { attempt: 1, command: "apt-get install -y kubeadm=1.26.0", output: "E: Version '1.26.0' for 'kubeadm' was not found", diagnosis: "Ubuntu 26.04 requires an updated apt repository for k8s 1.26." },
-          { attempt: 2, command: "curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.26/deb/Release.key | gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg", output: "gpg: can't create '/etc/apt/keyrings/kubernetes-apt-keyring.gpg': Permission denied", diagnosis: "Missing sudo privileges for ring.gpg creation." },
-          { attempt: 3, command: "sudo curl -fsSL https://pkgs.k8s.io/core:/stable:/v1.26/deb/Release.key | sudo gpg --dearmor -o /etc/apt/keyrings/kubernetes-apt-keyring.gpg", output: "Success.", diagnosis: "Keyring updated. Proceeding with apt update." }
-        ]
-      },
-      { id: 5, name: "Install Helm 3.10", status: "pending" }
-    ];
-
-    const mockServers = [
-      { id: "srv-01", ip: "10.0.4.11", status: "Succeeded", time: "2m ago" },
-      { id: "srv-02", ip: "10.0.4.12", status: "Failed", time: "5m ago" },
-      { id: "srv-03", ip: "10.0.4.13", status: "Running", time: "Just now" },
-      { id: "srv-04", ip: "10.0.4.14", status: "Pending", time: "-" },
-    ];
-
     // --- Shared Components ---
     const StatusBadge = ({ status }) => {
       let colors = "bg-slate-100 text-slate-600 border-slate-200";
@@ -136,13 +88,72 @@
 
     const RequirementsTab = () => {
       const [mode, setMode] = useState('profile');
-      const [profiles, setProfiles] = useState(['xyz26', 'xyz25', 'xyz24', 'xyz20']);
-      const [reqs, setReqs] = useState(mockRequirements);
+      const [profiles, setProfiles] = useState([]);
+      const [selectedProfile, setSelectedProfile] = useState('');
+      const [reqs, setReqs] = useState({ hardware: {}, software: {}, flags: {} });
       const [loading, setLoading] = useState(false);
 
-      const runReqs = () => {
+      useEffect(() => {
+        fetch('/api/profiles')
+          .then(res => res.json())
+          .then(data => {
+            setProfiles(data.profiles || []);
+            if (data.profiles && data.profiles.length > 0) {
+              setSelectedProfile(data.profiles[0]);
+            }
+          });
+        
+        fetch('/api/state/requirements.json')
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok') setReqs(data.content);
+          });
+      }, []);
+
+      const runReqs = async () => {
         setLoading(true);
-        setTimeout(() => setLoading(false), 800);
+        try {
+          const res = await fetch('/api/requirements/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: { mode: 'profile', version: selectedProfile } })
+          });
+          const result = await res.json();
+          if (result.status === 'ok') {
+            const stateRes = await fetch('/api/state/requirements.json');
+            const stateData = await stateRes.json();
+            if (stateData.status === 'ok') setReqs(stateData.content);
+          }
+        } catch (err) {
+          console.error("Failed to run requirements:", err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const handleFileUpload = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        setLoading(true);
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('save_profile', 'false');
+        try {
+          const res = await fetch('/api/requirements/upload', {
+            method: 'POST',
+            body: formData
+          });
+          const result = await res.json();
+          if (result.status === 'ok') {
+            const stateRes = await fetch('/api/state/requirements.json');
+            const stateData = await stateRes.json();
+            if (stateData.status === 'ok') setReqs(stateData.content);
+          }
+        } catch (err) {
+          console.error("Upload failed:", err);
+        } finally {
+          setLoading(false);
+        }
       };
 
       return (
@@ -164,22 +175,28 @@
               {mode === 'profile' && (
                 <div className="flex-1 max-w-xs">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Select Profile</label>
-                  <select className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-2 bg-slate-50 focus:outline-none focus:border-teal-500">
+                  <select 
+                    className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-2 bg-slate-50 focus:outline-none focus:border-teal-500"
+                    value={selectedProfile}
+                    onChange={(e) => setSelectedProfile(e.target.value)}
+                  >
                     {profiles.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
               )}
               {mode === 'upload' && (
-                <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50">
+                <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50 relative cursor-pointer hover:bg-slate-100 transition-colors">
                   <IconUpload className="w-6 h-6 mb-2" />
-                  <span className="text-sm">Drag and drop PDF/HTML, or click to browse</span>
+                  <span className="text-sm">Click to browse or Drag and drop PDF/HTML</span>
+                  <input type="file" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </div>
               )}
               {mode === 'custom' && (
                 <div className="flex-1 flex gap-4">
-                  <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50">
+                  <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50 relative cursor-pointer hover:bg-slate-100 transition-colors">
                     <IconUpload className="w-6 h-6 mb-2" />
                     <span className="text-sm">Upload Manual</span>
+                    <input type="file" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                   </div>
                   <div className="flex-1 flex flex-col justify-end">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Save Profile As</label>
@@ -188,7 +205,7 @@
                 </div>
               )}
               <div className="pb-0.5">
-                <button onClick={runReqs} className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
+                <button onClick={runReqs} disabled={loading || mode !== 'profile'} className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
                   {loading && <IconLoader className="w-4 h-4 text-white" />}
                   Extract Requirements
                 </button>
@@ -210,19 +227,19 @@
                   </tr>
                 </thead>
                 <tbody className="text-sm divide-y divide-slate-100">
-                  {Object.entries(reqs.hardware).map(([k, v]) => (
+                  {reqs.hardware && Object.entries(reqs.hardware).map(([k, v]) => (
                     <tr key={k} className="hover:bg-slate-50/50">
                       <td className="px-4 py-2 text-slate-500">Hardware</td>
                       <td className="px-4 py-2 font-medium text-slate-700">{k}</td>
                       <td className="px-4 py-2 font-mono text-slate-900">{v}</td>
                     </tr>
                   ))}
-                  {Object.entries(reqs.software).map(([k, v]) => (
+                  {reqs.software && Object.entries(reqs.software).map(([k, v]) => (
                     <tr key={k} className="hover:bg-slate-50/50">
                       <td className="px-4 py-2 text-slate-500">Software</td>
                       <td className="px-4 py-2 font-medium text-slate-700 flex items-center gap-2">
                         {k}
-                        {reqs.flags[k] && (
+                        {reqs.flags && reqs.flags[k] && (
                           <div className="group relative cursor-help flex items-center">
                             <IconFlag className="w-3.5 h-3.5 text-amber-500" />
                             <div className="absolute left-6 top-0 w-64 bg-slate-800 text-white text-xs p-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none z-20">
@@ -234,6 +251,9 @@
                       <td className="px-4 py-2 font-mono text-slate-900">{v}</td>
                     </tr>
                   ))}
+                  {(!reqs.hardware || Object.keys(reqs.hardware).length === 0) && (
+                    <tr><td colSpan="3" className="px-4 py-8 text-center text-slate-400 italic">No requirements extracted yet.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -243,23 +263,86 @@
     };
 
     const InventoryTab = () => {
-      const metCount = mockInventory.filter(i => i.status === 'Met').length;
+      const [host, setHost] = useState('10.0.4.11');
+      const [user, setUser] = useState('mystic');
+      const [pass, setPass] = useState('');
+      const [inventory, setInventory] = useState({ hardware: [], software: [] });
+      const [loading, setLoading] = useState(false);
+
+      const fetchInventory = () => {
+        fetch('/api/state/inventory.json')
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok') setInventory(data.content);
+          });
+      };
+
+      useEffect(() => {
+        fetchInventory();
+      }, []);
+
+      const runInventory = async () => {
+        setLoading(true);
+        try {
+          const res = await fetch('/api/inventory/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: { host, username: user, password: pass } })
+          });
+          const result = await res.json();
+          if (result.status === 'ok') {
+            fetchInventory();
+          } else {
+            alert('Inventory failed: ' + (result.error || 'Unknown error'));
+          }
+        } catch (err) {
+          console.error("Inventory failed:", err);
+          alert('Inventory API call failed.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const allItems = [...(inventory.hardware || []), ...(inventory.software || [])];
+      const metCount = allItems.filter(i => i.status === 'Met').length;
+
       return (
         <div className="flex flex-col h-full gap-4">
           <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4 flex gap-4 items-end">
             <div className="flex-1">
               <label className="block text-xs font-medium text-slate-500 mb-1">Target Host</label>
-              <input type="text" defaultValue="10.0.4.11" className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" />
+              <input 
+                type="text" 
+                value={host} 
+                onChange={e => setHost(e.target.value)}
+                className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
+              />
             </div>
             <div className="flex-1">
               <label className="block text-xs font-medium text-slate-500 mb-1">User</label>
-              <input type="text" defaultValue="mystic" className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" />
+              <input 
+                type="text" 
+                value={user} 
+                onChange={e => setUser(e.target.value)}
+                className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
+              />
             </div>
             <div className="flex-1">
               <label className="block text-xs font-medium text-slate-500 mb-1">Password / Key</label>
-              <input type="password" defaultValue="********" className="w-full text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" />
+              <input 
+                type="password" 
+                value={pass} 
+                onChange={e => setPass(e.target.value)}
+                placeholder="Required for sudo"
+                className="w-full text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
+              />
             </div>
-            <button className="bg-slate-900 hover:bg-slate-800 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors">
+            <button 
+              onClick={runInventory}
+              disabled={loading}
+              className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              {loading && <IconLoader className="w-4 h-4 text-white" />}
               Run Inventory
             </button>
           </div>
@@ -267,8 +350,11 @@
           <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
             <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
               <h3 className="font-semibold text-slate-800 text-sm">Gap Analysis</h3>
-              <div className="text-sm text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-sm">
-                <span className="font-medium text-slate-900">{metCount}</span> of {mockInventory.length} requirements met
+              <div className="flex gap-2 items-center">
+                 <button onClick={fetchInventory} className="text-xs text-teal-600 hover:text-teal-800">Refresh</button>
+                 <div className="text-sm text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-sm">
+                   <span className="font-medium text-slate-900">{metCount}</span> of {allItems.length} requirements met
+                 </div>
               </div>
             </div>
             <div className="overflow-auto flex-1">
@@ -283,7 +369,7 @@
                   </tr>
                 </thead>
                 <tbody className="text-[13px] divide-y divide-slate-100">
-                  {mockInventory.map((item, i) => (
+                  {allItems.map((item, i) => (
                     <tr key={i} className="hover:bg-slate-50/50">
                       <td className="px-4 py-2 text-center">
                         <StatusIcon status={item.status} />
@@ -296,6 +382,11 @@
                       </td>
                     </tr>
                   ))}
+                  {allItems.length === 0 && (
+                    <tr>
+                      <td colSpan="5" className="px-4 py-8 text-center text-slate-400 italic">No inventory data. Run requirements extraction first, then inventory.</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -305,18 +396,66 @@
     };
 
     const PackagesTab = () => {
-      const hasInsufficientHardware = true;
+      const [inventory, setInventory] = useState({ hardware: [], software: [] });
+      const [loading, setLoading] = useState(false);
+      const [acknowledged, setAcknowledged] = useState(false);
+
+      const fetchInventory = () => {
+        fetch('/api/state/inventory.json')
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok') setInventory(data.content);
+          });
+      };
+
+      useEffect(() => {
+        fetchInventory();
+      }, []);
+
+      const startPackages = async () => {
+        setLoading(true);
+        try {
+          const res = await fetch('/api/packages/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: {} })
+          });
+          const result = await res.json();
+          if (result.status === 'ok') {
+            alert('Package preparation complete.');
+          } else {
+            alert('Package preparation failed: ' + result.error);
+          }
+        } catch (err) {
+          console.error("Package planning failed:", err);
+          alert('Package planning API call failed.');
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      const hardwareIssues = (inventory.hardware || []).filter(i => i.status !== 'Met');
+      const softwareIssues = (inventory.software || []).filter(i => i.status !== 'Met');
+
       return (
         <div className="flex flex-col h-full gap-4">
-          {hasInsufficientHardware && (
+          {hardwareIssues.length > 0 && (
             <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex gap-3 items-start shrink-0">
               <IconAlert className="w-5 h-5 text-amber-600 mt-0.5" />
               <div>
                 <h4 className="text-sm font-semibold text-amber-800">Hardware Insufficient</h4>
-                <p className="text-sm text-amber-700 mt-1">Target host does not meet the minimum disk_gb requirement (Found: 114, Required: 200). Installation may fail. Acknowledge to proceed.</p>
+                <p className="text-sm text-amber-700 mt-1">
+                  Target host does not meet some requirements: {hardwareIssues.map(i => `${i.item} (Found: ${i.found}, Required: ${i.required})`).join(', ')}.
+                  Installation may fail. Acknowledge to proceed.
+                </p>
                 <div className="mt-2">
                   <label className="flex items-center gap-2 text-sm text-amber-900 cursor-pointer">
-                    <input type="checkbox" className="rounded border-amber-400 text-amber-600 focus:ring-amber-500" />
+                    <input 
+                      type="checkbox" 
+                      checked={acknowledged}
+                      onChange={e => setAcknowledged(e.target.checked)}
+                      className="rounded border-amber-400 text-amber-600 focus:ring-amber-500" 
+                    />
                     <span>I acknowledge the hardware risks</span>
                   </label>
                 </div>
@@ -326,9 +465,17 @@
 
           <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
             <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-              <h3 className="font-semibold text-slate-800 text-sm">Deployment Checklist</h3>
-              <button className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors shadow-sm">
-                Start Installation
+              <div className="flex items-center gap-3">
+                 <h3 className="font-semibold text-slate-800 text-sm">Deployment Checklist</h3>
+                 <button onClick={fetchInventory} className="text-xs text-teal-600 hover:text-teal-800">Refresh</button>
+              </div>
+              <button 
+                onClick={startPackages}
+                disabled={loading || (hardwareIssues.length > 0 && !acknowledged)}
+                className="bg-teal-600 hover:bg-teal-700 disabled:bg-slate-300 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors shadow-sm flex items-center gap-2"
+              >
+                {loading && <IconLoader className="w-4 h-4 text-white" />}
+                Prepare Installation
               </button>
             </div>
             <div className="overflow-auto flex-1 p-0">
@@ -342,31 +489,28 @@
                   </tr>
                 </thead>
                 <tbody className="text-[13px] divide-y divide-slate-100">
-                  {mockPackages.map((pkg) => (
-                    <tr key={pkg.id} className="hover:bg-slate-50/50">
+                  {softwareIssues.map((pkg, idx) => (
+                    <tr key={idx} className="hover:bg-slate-50/50">
                       <td className="px-4 py-2">
-                        <input type="checkbox" defaultChecked={pkg.status !== 'Met'} disabled={pkg.status === 'Met'} className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
+                        <input type="checkbox" checked={true} readOnly className="rounded border-slate-300 text-teal-600 focus:ring-teal-500" />
                       </td>
                       <td className="px-4 py-2 font-medium text-slate-800 flex items-center gap-2">
-                        {pkg.name}
-                        {pkg.flagged && (
-                           <div className="group relative cursor-help flex items-center">
-                             <IconFlag className="w-3.5 h-3.5 text-amber-500" />
-                             <div className="absolute left-6 top-0 w-64 bg-slate-800 text-white text-xs p-2 rounded opacity-0 group-hover:opacity-100 pointer-events-none z-20 whitespace-normal">
-                               {pkg.flagReason}
-                             </div>
-                           </div>
-                        )}
+                        {pkg.item}
                       </td>
                       <td className="px-4 py-2 font-mono text-slate-600">
-                        {pkg.current !== 'None' ? <span className="line-through opacity-50 mr-2">{pkg.current}</span> : null}
+                        {pkg.found !== 'None' ? <span className="line-through opacity-50 mr-2">{pkg.found}</span> : null}
                         {pkg.required}
                       </td>
                       <td className="px-4 py-2 text-slate-500">
-                        {pkg.status === 'Met' ? 'Already installed' : 'Will install'}
+                        Will install/update
                       </td>
                     </tr>
                   ))}
+                  {softwareIssues.length === 0 && (
+                    <tr>
+                      <td colSpan="4" className="px-4 py-8 text-center text-slate-400 italic">No software gaps detected. Everything is met!</td>
+                    </tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -376,51 +520,96 @@
     };
 
     const InstallerTab = () => {
-      const [expanded, setExpanded] = useState({ 4: true });
+      const [steps, setSteps] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [expanded, setExpanded] = useState({});
+      const [errorMsg, setErrorMsg] = useState(null);
       
       const toggle = (id) => setExpanded(prev => ({...prev, [id]: !prev[id]}));
+
+      const runInstaller = async () => {
+        setLoading(true);
+        setErrorMsg(null);
+        try {
+          const res = await fetch('/api/installer/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: {} })
+          });
+          const result = await res.json();
+          if (result.status === 'ok') {
+             if (result.steps) {
+                setSteps(result.steps);
+             }
+             if (result.error) {
+                setErrorMsg(result.error);
+             }
+          } else {
+             setErrorMsg(result.error || "Installation failed.");
+             if (result.steps) {
+                 setSteps(result.steps);
+             }
+          }
+        } catch (err) {
+          console.error("Installer failed:", err);
+          setErrorMsg("Installer API call failed.");
+        } finally {
+          setLoading(false);
+        }
+      };
 
       return (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
           <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
             <h3 className="font-semibold text-slate-800 text-sm">Live Execution Log</h3>
-            <span className="font-mono text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded border border-teal-200 animate-pulse">Running</span>
+            <div className="flex gap-4 items-center">
+               {loading && <span className="font-mono text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded border border-teal-200 animate-pulse">Running...</span>}
+               <button onClick={runInstaller} disabled={loading} className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2">
+                  {loading && <IconLoader className="w-4 h-4 text-white" />}
+                  Run Installer
+               </button>
+            </div>
           </div>
           <div className="overflow-auto flex-1 p-4 bg-slate-50/50">
             <div className="space-y-4">
-              {mockSteps.map(step => (
-                <div key={step.id} className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
+              {errorMsg && (
+                 <div className="bg-rose-50 border border-rose-200 rounded p-4 text-rose-800 text-sm">
+                   <strong>Error: </strong> {errorMsg}
+                 </div>
+              )}
+              {steps.map((step, idx) => (
+                <div key={idx} className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
                   <div 
                     className={`px-4 py-3 flex items-center gap-3 cursor-pointer select-none ${step.status === 'failed' ? 'bg-rose-50/30' : ''}`}
-                    onClick={() => step.attempts && toggle(step.id)}
+                    onClick={() => step.attempts && toggle(idx)}
                   >
                     <div className="shrink-0 w-5 h-5 flex items-center justify-center">
                       <StatusIcon status={step.status} />
                     </div>
-                    <span className="font-medium text-sm text-slate-800 flex-1">{step.name}</span>
+                    <span className="font-medium text-sm text-slate-800 flex-1">{step.name || step.action}</span>
                     <span className="shrink-0"><StatusBadge status={step.status} /></span>
                     {step.attempts && (
                       <span className="shrink-0 text-slate-400">
-                        {expanded[step.id] ? <IconChevronDown /> : <IconChevronRight />}
+                        {expanded[idx] ? <IconChevronDown /> : <IconChevronRight />}
                       </span>
                     )}
                   </div>
                   
-                  {step.attempts && expanded[step.id] && (
+                  {step.attempts && expanded[idx] && (
                     <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-4">
                       {step.attempts.map((att, i) => (
                         <div key={i} className="relative pl-6 border-l-2 border-slate-200">
                           <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-slate-50"></div>
-                          <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Attempt {att.attempt}</div>
+                          <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Attempt {att.attempt || (i+1)}</div>
                           <div className="bg-[#0F172A] rounded p-3 mb-2 overflow-x-auto shadow-inner">
                             <div className="font-mono text-[12px] text-teal-400 mb-1">$ {att.command}</div>
-                            <div className={`font-mono text-[12px] whitespace-pre-wrap ${att.output === 'Success.' ? 'text-emerald-400' : 'text-slate-300'}`}>{att.output}</div>
+                            <div className={`font-mono text-[12px] whitespace-pre-wrap ${att.output && att.output.includes('Error') ? 'text-rose-400' : 'text-slate-300'}`}>{att.output || 'No output'}</div>
                           </div>
                           <div className="bg-indigo-50 border border-indigo-100 rounded p-3 text-sm flex gap-3 items-start">
                             <span className="shrink-0 mt-0.5">🧠</span>
                             <div>
                               <div className="font-semibold text-indigo-900 text-xs uppercase mb-0.5">Agent Diagnosis</div>
-                              <div className="text-indigo-800 leading-relaxed">{att.diagnosis}</div>
+                              <div className="text-indigo-800 leading-relaxed">{att.diagnosis || 'None'}</div>
                             </div>
                           </div>
                         </div>
@@ -429,6 +618,9 @@
                   )}
                 </div>
               ))}
+              {steps.length === 0 && !loading && !errorMsg && (
+                <div className="text-center py-12 text-slate-400 italic">No execution data yet. Click Run Installer to begin.</div>
+              )}
             </div>
           </div>
         </div>
@@ -436,39 +628,30 @@
     };
 
     const ReportTab = () => {
+      const [report, setReport] = useState('');
+      
+      const fetchReport = () => {
+        fetch('/api/state/session_report.md')
+          .then(res => res.json())
+          .then(data => {
+            if (data.status === 'ok') setReport(data.content);
+          });
+      };
+
+      useEffect(() => {
+        fetchReport();
+      }, []);
+
       return (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
           <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-            <h3 className="font-semibold text-slate-800 text-sm">Fleet Status</h3>
-            <button className="text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded shadow-sm">
+            <h3 className="font-semibold text-slate-800 text-sm">Deployment Report</h3>
+            <button onClick={fetchReport} className="text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded shadow-sm">
               Refresh
             </button>
           </div>
-          <div className="overflow-auto flex-1 p-0">
-             <table className="w-full text-left border-collapse whitespace-nowrap">
-                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider sticky top-0 z-10 shadow-sm">
-                  <tr>
-                    <th className="px-4 py-2 border-b border-slate-200 w-8"></th>
-                    <th className="px-4 py-2 font-medium border-b border-slate-200">Server ID</th>
-                    <th className="px-4 py-2 font-medium border-b border-slate-200">IP Address</th>
-                    <th className="px-4 py-2 font-medium border-b border-slate-200">Last Update</th>
-                    <th className="px-4 py-2 font-medium border-b border-slate-200 text-right">Status</th>
-                  </tr>
-                </thead>
-                <tbody className="text-[13px] divide-y divide-slate-100">
-                  {mockServers.map((srv) => (
-                    <tr key={srv.id} className="hover:bg-slate-50/50 cursor-pointer">
-                      <td className="px-4 py-2"><IconServer className="w-4 h-4 text-slate-400" /></td>
-                      <td className="px-4 py-2 font-medium text-slate-800">{srv.id}</td>
-                      <td className="px-4 py-2 font-mono text-slate-600">{srv.ip}</td>
-                      <td className="px-4 py-2 text-slate-500">{srv.time}</td>
-                      <td className="px-4 py-2 text-right">
-                        <StatusBadge status={srv.status} />
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+          <div className="overflow-auto flex-1 p-6 font-mono text-sm whitespace-pre-wrap bg-slate-50 text-slate-800">
+             {report || "No report available yet. Complete an installation first."}
           </div>
         </div>
       );
@@ -479,8 +662,6 @@
       const [activeTab, setActiveTab] = useState('requirements');
       const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
 
-      // Note: Actual event source logic commented out for UI design evaluation focus, 
-      // but structural hooks remain as required.
       useEffect(() => {
         const source = new EventSource('/api/events');
         source.addEventListener('tokens', event => {

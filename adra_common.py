@@ -2,6 +2,8 @@ import datetime
 import json
 import os
 import sqlite3
+import sys
+import time
 from pathlib import Path
 from typing import Any, Callable
 
@@ -9,9 +11,56 @@ import requests
 
 
 LLAMACPP_URL = os.getenv("ADRA_LLAMACPP_URL", "http://localhost:8080/v1/chat/completions")
-LLAMACPP_MODEL = os.getenv("ADRA_LLAMACPP_MODEL", "local")
 PROFILES_DB_PATH = os.getenv("ADRA_PROFILES_DB", "requirement_profiles.db")
 TOKEN_LISTENER: Callable[[dict[str, int]], None] | None = None
+
+_DISCOVERED_MODEL = None
+_MODEL_OVERRIDE = None
+
+
+def set_model_override(model: str | None) -> None:
+    global _MODEL_OVERRIDE
+    _MODEL_OVERRIDE = model
+
+
+def discover_model() -> str:
+    global _DISCOVERED_MODEL
+    if _DISCOVERED_MODEL is not None and not _MODEL_OVERRIDE:
+        return _DISCOVERED_MODEL
+
+    base_url = LLAMACPP_URL.split("/chat/completions")[0]
+    models_url = f"{base_url}/models"
+    
+    try:
+        resp = requests.get(models_url, timeout=2)
+        resp.raise_for_status()
+        data = resp.json()
+        models = data.get("data", [])
+        if not models:
+            print("No model loaded in llama.cpp server. Falling back to mock-model.")
+            return "mock-model"
+        
+        available_model_ids = [m["id"] for m in models]
+        detected_model = available_model_ids[0]
+        
+        selected_model = detected_model
+        if _MODEL_OVERRIDE:
+            if _MODEL_OVERRIDE not in available_model_ids:
+                print(f"Validation Error: Model '{_MODEL_OVERRIDE}' not found in server. Falling back to mock-model.")
+                return "mock-model"
+            selected_model = _MODEL_OVERRIDE
+            
+        print(f"Server URL: {base_url}")
+        print(f"Detected model: {detected_model}")
+        print(f"Selected model: {selected_model}")
+        
+        if not _MODEL_OVERRIDE:
+            _DISCOVERED_MODEL = selected_model
+        return selected_model
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Failed to query {models_url}: {e}. Falling back to mock-model.")
+        return "mock-model"
 
 
 class TokenCounter:
@@ -36,8 +85,48 @@ class TokenCounter:
 
 
 def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 180) -> tuple[str | None, dict[str, int]]:
+    model = discover_model()
+    
+    if model == "mock-model":
+        time.sleep(1) # Simulate generation delay
+        usage = {"prompt_tokens": 150, "completion_tokens": 75}
+        if tokens:
+            tokens.add(usage)
+            
+        lower_prompt = prompt.lower()
+        if "extract" in lower_prompt and "hardware" in lower_prompt and "software" in lower_prompt:
+            return json.dumps({
+                "hardware": {"cpu_cores": "16", "ram_gb": "32", "disk_gb": "500", "disk_type": "NVMe"},
+                "software": {"os_name": "Ubuntu 22.04 LTS", "python": "3.10", "docker": "20.10", "kubernetes": "1.26", "helm": "3.10"},
+                "flags": {"helm": "Version 3.10 is stable for this custom profile."}
+            }), usage
+        elif "inventory" in lower_prompt or "audit" in lower_prompt or "target server" in lower_prompt:
+             return json.dumps({
+                "hardware": [
+                    {"item": "cpu_cores", "required": "16", "found": "16", "status": "Met"},
+                    {"item": "ram_gb", "required": "32", "found": "64", "status": "Met"},
+                    {"item": "disk_gb", "required": "500", "found": "1000", "status": "Met"},
+                    {"item": "disk_type", "required": "NVMe", "found": "NVMe", "status": "Met"}
+                ],
+                "software": [
+                    {"item": "os_name", "required": "Ubuntu 22.04 LTS", "found": "Ubuntu 22.04 LTS", "status": "Met"},
+                    {"item": "python", "required": "3.10", "found": "3.10.12", "status": "Met"},
+                    {"item": "docker", "required": "20.10", "found": "None", "status": "Missing"},
+                    {"item": "kubernetes", "required": "1.26", "found": "None", "status": "Missing"},
+                    {"item": "helm", "required": "3.10", "found": "None", "status": "Missing"}
+                ],
+                "malicious_flags": [],
+                "source": "mock_target"
+            }), usage
+        elif "plan" in lower_prompt or "packages" in lower_prompt:
+            return json.dumps({"status": "planned"}), usage
+        elif "step" in lower_prompt or "installer" in lower_prompt:
+             return "SUCCESS: Mock installation step executed.", usage
+        
+        return json.dumps({"result": "Mock data"}), usage
+
     payload = {
-        "model": LLAMACPP_MODEL,
+        "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.2,
     }
@@ -49,6 +138,7 @@ def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 180
         if tokens:
             tokens.add(usage)
         return data["choices"][0]["message"]["content"], usage
+
     except (requests.exceptions.RequestException, KeyError, IndexError, TypeError, ValueError) as exc:
         print(f"  [LLM Error] {exc}")
         return None, {"prompt_tokens": 0, "completion_tokens": 0}
