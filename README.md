@@ -30,7 +30,15 @@ pip install -r requirements.txt
 ```
 
 **2. Start the Local LLM:**
-Ensure you have an OpenAI-compatible endpoint running (e.g., using `llama-server`).
+Ensure you have an OpenAI-compatible endpoint running. You can launch `llama-server` with your preferred model and an adequate context size (e.g., 8192 tokens for RAG document parsing):
+
+```bash
+llama-server \
+  -m /home/mystic/models/qwen25/qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf \
+  -t 16 \
+  -c 8192 \
+  --port 8080
+```
 *Set `ADRA_LLAMACPP_URL` and `ADRA_LLAMACPP_MODEL` environment variables if your setup differs from the defaults.*
 *Note: If no LLM is detected, ADRA will automatically fall back to mock JSON responses to keep the application running.*
 
