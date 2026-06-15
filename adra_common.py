@@ -95,11 +95,18 @@ def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 180
             
         lower_prompt = prompt.lower()
         if "extract" in lower_prompt and "hardware" in lower_prompt and "software" in lower_prompt:
-            return json.dumps({
-                "hardware": {"cpu_cores": "16", "ram_gb": "32", "disk_gb": "500", "disk_type": "NVMe"},
-                "software": {"os_name": "Ubuntu 22.04 LTS", "python": "3.10", "docker": "20.10", "kubernetes": "1.26", "helm": "3.10"},
-                "flags": {"helm": "Version 3.10 is stable for this custom profile."}
-            }), usage
+            if "ns-3" in lower_prompt or "ns3" in lower_prompt or "25 gb ssd" in lower_prompt:
+                return json.dumps({
+                    "hardware": {"cpu_cores": "1", "ram_gb": "2", "disk_gb": "25", "disk_type": "SSD"},
+                    "software": {"os_name": "Ubuntu 22.04 LTS", "python": "3.9", "docker": null, "kubernetes": null, "helm": null},
+                    "flags": {"firewall": "Requires disabling firewall to allow raw socket bridging."}
+                }), usage
+            else:
+                return json.dumps({
+                    "hardware": {"cpu_cores": "16", "ram_gb": "32", "disk_gb": "500", "disk_type": "NVMe"},
+                    "software": {"os_name": "Ubuntu 22.04 LTS", "python": "3.10", "docker": "20.10", "kubernetes": "1.26", "helm": "3.10"},
+                    "flags": {"helm": "Version 3.10 is stable for this custom profile."}
+                }), usage
         elif "inventory" in lower_prompt or "audit" in lower_prompt or "target server" in lower_prompt:
              return json.dumps({
                 "hardware": [
