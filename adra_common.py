@@ -98,7 +98,7 @@ def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 900
             if "ns-3" in lower_prompt or "ns3" in lower_prompt or "25 gb ssd" in lower_prompt:
                 return json.dumps({
                     "hardware": {"cpu_cores": "1", "ram_gb": "2", "disk_gb": "25", "disk_type": "SSD"},
-                    "software": {"os_name": "Ubuntu 22.04 LTS", "python": "3.9", "docker": null, "kubernetes": null, "helm": null},
+                    "software": {"os_name": "Ubuntu 22.04 LTS", "python": "3.9", "docker": None, "kubernetes": None, "helm": None},
                     "flags": {"firewall": "Requires disabling firewall to allow raw socket bridging."}
                 }), usage
             else:
@@ -172,23 +172,55 @@ def init_requirement_profiles(db_path: str = PROFILES_DB_PATH) -> sqlite3.Connec
 
 
 def seed_default_requirement_profiles(conn: sqlite3.Connection) -> None:
-    existing = conn.execute("SELECT COUNT(*) FROM requirement_profiles").fetchone()[0]
     source = Path("requirements.json")
-    if existing or not source.exists():
-        return
-    requirements = json.loads(source.read_text(encoding="utf-8"))
-    flags = requirements.get("malicious_flags", [])
+    base_requirements = {}
+    if source.exists():
+        try:
+            base_requirements = json.loads(source.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+            
+    base_software = base_requirements.get("software", {
+        "python": "3.10",
+        "docker": "20.10",
+        "kubernetes": "1.26",
+        "helm": "3.10"
+    })
+    # Remove os_name as it varies per profile
+    base_software.pop("os_name", None)
+    
+    flags = base_requirements.get("malicious_flags", [])
     now = datetime.datetime.now().isoformat()
-    for version in ("xyz20", "xyz24", "xyz25", "xyz26"):
+    
+    profiles_data = {
+        "xyz20": {
+            "hardware": {"cpu_cores": 10, "ram_gb": 8, "disk_gb": 5, "disk_type": "SSD"},
+            "software": {**base_software, "os_name": "Ubuntu 22.04"}
+        },
+        "xyz24": {
+            "hardware": {"cpu_cores": 12, "ram_gb": 16, "disk_gb": 200, "disk_type": "SSD"},
+            "software": {**base_software, "os_name": "Ubuntu 22.04 or RHEL 8"}
+        },
+        "xyz25": {
+            "hardware": {"cpu_cores": 16, "ram_gb": 32, "disk_gb": 500, "disk_type": "NVMe"},
+            "software": {**base_software, "os_name": "RHEL 9"}
+        },
+        "xyz26": {
+            "hardware": {"cpu_cores": 32, "ram_gb": 64, "disk_gb": 1000, "disk_type": "NVMe"},
+            "software": {**base_software, "os_name": "Ubuntu 24.04"}
+        }
+    }
+
+    for version, data in profiles_data.items():
         conn.execute(
             """
-            INSERT OR IGNORE INTO requirement_profiles
+            INSERT OR REPLACE INTO requirement_profiles
             (version_name, requirements, source_type, source_doc_sha, malicious_flags, created_at, created_by)
             VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 version,
-                json.dumps(requirements, indent=2),
+                json.dumps(data, indent=2),
                 "official",
                 None,
                 json.dumps(flags),

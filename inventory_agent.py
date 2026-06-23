@@ -1,4 +1,5 @@
 import json
+import os
 import re
 import paramiko
 import getpass
@@ -11,13 +12,6 @@ from adra_common import TokenCounter, call_llm as call_llamacpp, write_json, set
 SSH_HOST = "127.0.0.1"
 SSH_PORT = 22
 SSH_USER = "mystic"
-
-# Every item in this list MUST have a non-null found value
-# before the planner is allowed to declare audit_complete = true.
-REQUIRED_ITEMS = [
-    "cpu_cores", "ram_gb", "disk_gb", "disk_type",
-    "os_name", "python", "docker", "kubernetes", "helm"
-]
 
 # Hardcoded fallback: if the LLM keeps failing to check an item,
 # we run this command directly without asking the LLM.
@@ -108,6 +102,22 @@ def load_requirements():
         print("Error: requirements.json not found. Run requirements_agent.py first.")
         return None
 
+CACHE_FILE = "./db/command_cache.json"
+
+def load_command_cache() -> dict:
+    try:
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, "r") as f:
+                return json.load(f)
+    except Exception:
+        pass
+    return {}
+
+def save_command_cache(cache: dict) -> None:
+    os.makedirs(os.path.dirname(CACHE_FILE), exist_ok=True)
+    with open(CACHE_FILE, "w") as f:
+        json.dump(cache, f, indent=4)
+
 
 TOKENS = TokenCounter()
 
@@ -142,10 +152,10 @@ def format_collected(collected: list[dict]) -> str:
     return "\n".join(lines)
 
 
-def items_not_yet_collected(collected: list[dict]) -> list[str]:
-    """Return REQUIRED_ITEMS that have no entry in collected_data."""
+def items_not_yet_collected(collected: list[dict], required_items: list[str]) -> list[str]:
+    """Return required_items that have no entry in collected_data."""
     covered = {e["item"] for e in collected}
-    return [item for item in REQUIRED_ITEMS if item not in covered]
+    return [item for item in required_items if item not in covered]
 
 
 # ==========================================
@@ -154,20 +164,41 @@ def items_not_yet_collected(collected: list[dict]) -> list[str]:
 def run_inventory_audit(ssh_client: paramiko.SSHClient, reqs: dict, host: str = "default"):
     print("\n--- Starting Autonomous LLM Planner Loop ---")
 
+    print(f"\n[OS Discovery] Probing {host}...")
+    exit_code, os_output = execute_ssh(ssh_client, "grep PRETTY_NAME /etc/os-release | cut -d= -f2 | tr -d '\"'")
+    os_name = os_output if exit_code == 0 and os_output else "Unknown OS"
+    print(f"  -> Discovered OS: {os_name}")
+
+    command_cache = load_command_cache()
+    os_cache = command_cache.get(os_name, {})
+
+    required_items = list(reqs.get("hardware", {}).keys()) + list(reqs.get("software", {}).keys())
     collected_data: list[dict] = []   # {"item": str, "command": str, "output": str}
     memory = PlannerMemory()
     max_steps = 15
     consecutive_json_failures = 0
 
     for step in range(max_steps):
-        unchecked = items_not_yet_collected(collected_data)
+        unchecked = items_not_yet_collected(collected_data, required_items)
 
         # All items covered — safe to exit
         if not unchecked:
-            print(f"\n  [Guard] All {len(REQUIRED_ITEMS)} items collected. Exiting planner loop.")
+            print(f"\n  [Guard] All {len(required_items)} items collected. Exiting planner loop.")
             break
 
         print(f"\n[Step {step+1}/{max_steps}] Unchecked: {unchecked}")
+
+        # Check Cache
+        target_item = unchecked[0]
+        if target_item in os_cache:
+            cached_cmd = os_cache[target_item]
+            print(f"  [Cache Hit] Running known command for '{target_item}' on '{os_name}': {cached_cmd}")
+            exit_code, output = execute_ssh(ssh_client, cached_cmd)
+            if exit_code == 0 and output:
+                collected_data.append({"item": target_item, "command": cached_cmd, "output": output})
+                continue
+            else:
+                print(f"  [Cache Miss] Cached command failed. Falling back to LLM.")
 
         # After 3 consecutive JSON failures, bypass the LLM for the next
         # unchecked item and run the fallback command directly.
@@ -187,9 +218,10 @@ def run_inventory_audit(ssh_client: paramiko.SSHClient, reqs: dict, host: str = 
 
         # Build the planner prompt
         prompt = f"""You are a Linux server auditor. Your job is to collect system information by running shell commands via SSH.
+Target OS: {os_name}
 
 CHECKLIST — you must collect data for ALL of these items before finishing:
-{json.dumps(REQUIRED_ITEMS, indent=2)}
+{json.dumps(required_items, indent=2)}
 
 ITEMS STILL UNCHECKED (you MUST address at least one of these):
 {json.dumps(unchecked, indent=2)}
@@ -232,7 +264,7 @@ Respond EXACTLY in this format:
 
         # Guard: LLM tries to exit early
         if action.get("audit_complete") is True:
-            still_missing = items_not_yet_collected(collected_data)
+            still_missing = items_not_yet_collected(collected_data, required_items)
             if still_missing:
                 memory.penalise(
                     "audit_complete=true",
@@ -258,6 +290,13 @@ Respond EXACTLY in this format:
             print(f"  [Output Captured]: {len(output)} characters")
             collected_data.append({"item": item, "command": command, "output": output})
             memory.reward(command, item, output[:60])
+            
+            # Save successful command to cache
+            if item not in os_cache or os_cache[item] != command:
+                os_cache[item] = command
+                command_cache[os_name] = os_cache
+                save_command_cache(command_cache)
+                print(f"  [Cache Saved] '{item}' command cached for '{os_name}'.")
         else:
             print(f"  [SSH Error] exit={exit_code}  output={output[:120]}")
             # Still record it so we don't retry the same broken command
@@ -294,21 +333,15 @@ Build the inventory comparison table below.
   - "Missing"       = no data was collected for this item
 
 IMPORTANT: Do NOT copy the example null values. Fill in real values from the collected data.
+Include ALL items from the REQUIREMENTS block, divided into hardware and software.
 
 Respond with ONLY a raw JSON object — no markdown fences, no explanation:
 {{
     "hardware": [
-        {{"item": "cpu_cores",  "required": <integer from reqs>,  "found": <integer from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "ram_gb",     "required": <integer from reqs>,  "found": <integer from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "disk_gb",    "required": <integer from reqs>,  "found": <integer from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "disk_type",  "required": <string from reqs>,   "found": <string from data or null>,  "status": "<Met|Insufficient|Missing>"}}
+        {{"item": "<item_name>", "required": "<value_from_reqs>", "found": "<value_from_data_or_null>", "status": "<Met|Insufficient|Missing>"}}
     ],
     "software": [
-        {{"item": "python",     "required": <string from reqs>, "found": <string from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "docker",     "required": <string from reqs>, "found": <string from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "kubernetes", "required": <string from reqs>, "found": <string from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "helm",       "required": <string from reqs>, "found": <string from data or null>, "status": "<Met|Insufficient|Missing>"}},
-        {{"item": "os_name",    "required": <string from reqs>, "found": <string from data or null>, "status": "<Met|Insufficient|Missing>"}}
+        {{"item": "<item_name>", "required": "<value_from_reqs>", "found": "<value_from_data_or_null>", "status": "<Met|Insufficient|Missing>"}}
     ]
 }}"""
 

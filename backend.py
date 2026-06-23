@@ -46,11 +46,10 @@ async def configure_token_events() -> None:
             self.original_stdout.write(data)
             if data and data.strip():
                 try:
-                    # Only attempt to publish if loop is running
-                    loop = asyncio.get_running_loop()
+                    # Safely push to asyncio queues from any background thread
                     for queue in list(TOKEN_QUEUES):
                         loop.call_soon_threadsafe(queue.put_nowait, {"log": data})
-                except RuntimeError:
+                except Exception:
                     pass
 
         def flush(self):
@@ -106,7 +105,14 @@ def run_inventory(payload: AgentContext) -> dict[str, Any]:
     
     if not hosts:
         # Fallback for single host execution
-        return result_with_tokens(inventory_agent.run(context))
+        res = result_with_tokens(inventory_agent.run(context))
+        if res.get("status") == "ok":
+            host = context.get("host", "127.0.0.1")
+            try:
+                Path("inventory.json").write_text(Path(f"inventory_{host}.json").read_text(encoding="utf-8"), encoding="utf-8")
+            except Exception:
+                pass
+        return res
         
     results = []
     total_tokens = {"prompt": 0, "completion": 0, "total": 0}
@@ -121,7 +127,18 @@ def run_inventory(payload: AgentContext) -> dict[str, Any]:
         for future in concurrent.futures.as_completed(futures):
             try:
                 res = future.result()
+                h = futures[future]
+                res["host"] = h.get("host")
                 results.append(res)
+                
+                # Copy to inventory.json to keep other tabs functioning with latest state
+                if res.get("status") == "ok" and res.get("host"):
+                    host_ip = res["host"]
+                    try:
+                        Path("inventory.json").write_text(Path(f"inventory_{host_ip}.json").read_text(encoding="utf-8"), encoding="utf-8")
+                    except Exception:
+                        pass
+                
                 t = res.get("tokens_used", {})
                 total_tokens["prompt"] += t.get("prompt", 0)
                 total_tokens["completion"] += t.get("completion", 0)
@@ -146,7 +163,8 @@ def run_installer(payload: AgentContext) -> dict[str, Any]:
 @app.get("/api/state/{filename}")
 def read_state(filename: str) -> dict[str, Any]:
     allowed = {"requirements.json", "inventory.json", "session_report.md"}
-    if filename not in allowed:
+    is_inventory_host = filename.startswith("inventory_") and filename.endswith(".json")
+    if filename not in allowed and not is_inventory_host:
         return {"status": "error", "error": "unsupported state file"}
     path = Path(filename)
     if not path.exists():
