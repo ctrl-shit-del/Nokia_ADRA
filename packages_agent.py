@@ -83,6 +83,26 @@ SKILLS: dict[str, dict] = {
         "verify_cmd": "docker --version 2>&1",
     },
 
+    "curl": {
+        "description": "cURL - command line tool for transferring data",
+        "check_cmd": "curl --version 2>&1",
+        "install": {
+            "ubuntu": ["sudo apt-get update -y", "sudo apt-get install -y curl"],
+            "rhel": ["sudo yum install -y curl"]
+        },
+        "verify_cmd": "curl --version 2>&1 | head -n 1"
+    },
+
+    "git": {
+        "description": "Git - version control system",
+        "check_cmd": "git --version 2>&1",
+        "install": {
+            "ubuntu": ["sudo apt-get update -y", "sudo apt-get install -y git"],
+            "rhel": ["sudo yum install -y git"]
+        },
+        "verify_cmd": "git --version 2>&1 | head -n 1"
+    },
+
     "kubernetes": {
         "description": "kubectl — Kubernetes CLI client",
         "check_cmd":   "kubectl version --client 2>&1",
@@ -602,7 +622,10 @@ def run(context: dict | None = None) -> dict:
         print("━" * 54)
         answer = context.get("acknowledge_hardware")
         if answer is None:
-            answer = input("\n  Continue with software installation anyway? (y/N): ").strip().lower() == "y"
+            if not getattr(sys.stdin, "isatty", lambda: False)():
+                answer = True
+            else:
+                answer = input("\n  Continue with software installation anyway? (y/N): ").strip().lower() == "y"
         if not answer:
             print("Aborting.")
             return {"status": "error", "error": "hardware requirements not acknowledged", "tokens_used": TOKENS.as_dict()}
