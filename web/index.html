@@ -274,9 +274,14 @@
 
     const InventoryTab = () => {
       const [mode, setMode] = useState('single');
-      const [host, setHost] = useState('10.0.4.11');
-      const [user, setUser] = useState('mystic');
-      const [pass, setPass] = useState('');
+      const [host, setHost] = useState(() => localStorage.getItem('adra_host') || '10.0.4.11');
+      const [user, setUser] = useState(() => localStorage.getItem('adra_user') || 'mystic');
+      const [pass, setPass] = useState(() => localStorage.getItem('adra_pass') || '');
+
+      useEffect(() => { localStorage.setItem('adra_host', host); }, [host]);
+      useEffect(() => { localStorage.setItem('adra_user', user); }, [user]);
+      useEffect(() => { localStorage.setItem('adra_pass', pass); }, [pass]);
+
       const [fleet, setFleet] = useState([]);
       const [fleetResults, setFleetResults] = useState([]);
       const [inventory, setInventory] = useState({ hardware: [], software: [] });
@@ -505,10 +510,14 @@
       const startPackages = async () => {
         setLoading(true);
         try {
+          const host = localStorage.getItem('adra_host') || '10.0.4.11';
+          const username = localStorage.getItem('adra_user') || 'mystic';
+          const password = localStorage.getItem('adra_pass') || '';
+
           const res = await fetch('/api/packages/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: {} })
+            body: JSON.stringify({ context: { host, username, password } })
           });
           const result = await res.json();
           if (result.status === 'ok') {
@@ -621,10 +630,14 @@
         setLoading(true);
         setErrorMsg(null);
         try {
+          const host = localStorage.getItem('adra_host') || '10.0.4.11';
+          const username = localStorage.getItem('adra_user') || 'mystic';
+          const password = localStorage.getItem('adra_pass') || '';
+
           const res = await fetch('/api/installer/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: {} })
+            body: JSON.stringify({ context: { host, username, password } })
           });
           const result = await res.json();
           if (result.status === 'ok') {
@@ -749,9 +762,14 @@
 
     const TerminalTab = ({ logs }) => {
       const [cmd, setCmd] = useState('');
-      const [host, setHost] = useState('10.0.4.11');
-      const [user, setUser] = useState('mystic');
-      const [pass, setPass] = useState('');
+      const [host, setHost] = useState(() => localStorage.getItem('adra_host') || '10.0.4.11');
+      const [user, setUser] = useState(() => localStorage.getItem('adra_user') || 'mystic');
+      const [pass, setPass] = useState(() => localStorage.getItem('adra_pass') || '');
+
+      useEffect(() => { localStorage.setItem('adra_host', host); }, [host]);
+      useEffect(() => { localStorage.setItem('adra_user', user); }, [user]);
+      useEffect(() => { localStorage.setItem('adra_pass', pass); }, [pass]);
+
       const [loading, setLoading] = useState(false);
       const endRef = useRef(null);
 

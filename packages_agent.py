@@ -700,7 +700,7 @@ def run(context: dict | None = None) -> dict:
                 inv_item["status"] = "Met"
                 
         # Save the updated inventory back to file so installer_agent can see the updates
-        write_json, set_model_override("inventory.json", inventory)
+        write_json("inventory.json", inventory)
 
     except Exception as e:
         print(f"\nFatal SSH error: {e}")
@@ -745,6 +745,7 @@ def run(context: dict | None = None) -> dict:
 
     return {
         "status": "ok" if not failed and not no_skill and not fatal else "error",
+        "error": "Some packages failed to install or have no skill defined." if (failed or no_skill or fatal) else None,
         "result_path": "inventory.json",
         "summary": {
             "results": results,
