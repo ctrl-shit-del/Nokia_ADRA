@@ -806,7 +806,7 @@
              <span className="text-xs text-slate-400 font-mono">ADRA SSH Terminal</span>
           </div>
           <div className="overflow-auto flex-1 p-4 font-mono text-[13px] whitespace-pre-wrap text-teal-400 break-words leading-relaxed">
-             {logs.map((log, i) => <div key={i}>{log}</div>)}
+             {logs}
              <div ref={endRef} />
           </div>
           <div className="p-3 bg-slate-800 border-t border-slate-700 flex">
@@ -829,7 +829,7 @@
     const App = () => {
       const [activeTab, setActiveTab] = useState('requirements');
       const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
-      const [logs, setLogs] = useState([]);
+      const [logs, setLogs] = useState("");
       const [runTime, setRunTime] = useState(0);
       const timerRef = React.useRef(null);
 
@@ -888,7 +888,7 @@
           try {
             const data = JSON.parse(event.data);
             if (data.log) {
-              setLogs(prev => [...prev, data.log].slice(-2000));
+              setLogs(prev => (prev + data.log).slice(-20000));
             }
           } catch(e){}
         });

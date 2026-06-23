@@ -219,14 +219,15 @@ def execute_ssh(
     display = command[:100] + ("..." if len(command) > 100 else "")
     print(f"  [SSH] {display}")
 
-    if command.startswith("sudo ") and not PASSWORDLESS_SUDO:
+    if "sudo " in command and not PASSWORDLESS_SUDO:
         # -S: read password from stdin
         # -p '': empty prompt string so 'Password:' doesn't pollute our output capture
-        sudo_cmd = "sudo -S -p '' " + command[5:]
+        sudo_cmd = command.replace("sudo ", "sudo -S -p '' ")
         stdin, stdout, stderr = client.exec_command(sudo_cmd)
         if sudo_password:
-            # Write password to stdin and close — sudo reads one line then proceeds
-            stdin.write(sudo_password + "\n")
+            # Write password to stdin for each sudo instance in the pipeline
+            for _ in range(command.count("sudo ")):
+                stdin.write(sudo_password + "\n")
             stdin.flush()
             stdin.channel.shutdown_write()
     else:

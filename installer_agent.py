@@ -201,11 +201,12 @@ def execute_ssh(
     display = command[:100] + ("..." if len(command) > 100 else "")
     print(f"  [SSH] {display}")
 
-    if command.startswith("sudo ") and not PASSWORDLESS_SUDO:
-        sudo_cmd = "sudo -S -p '' " + command[5:]
+    if "sudo " in command and not PASSWORDLESS_SUDO:
+        sudo_cmd = command.replace("sudo ", "sudo -S -p '' ")
         stdin, stdout, stderr = client.exec_command(sudo_cmd)
         if sudo_password:
-            stdin.write(sudo_password + "\n")
+            for _ in range(command.count("sudo ")):
+                stdin.write(sudo_password + "\n")
             stdin.flush()
             stdin.channel.shutdown_write()
     else:

@@ -44,7 +44,7 @@ async def configure_token_events() -> None:
 
         def write(self, data):
             self.original_stdout.write(data)
-            if data and data.strip():
+            if data:
                 try:
                     # Safely push to asyncio queues from any background thread
                     for queue in list(TOKEN_QUEUES):
