@@ -208,6 +208,14 @@ def seed_default_requirement_profiles(conn: sqlite3.Connection) -> None:
         "xyz26": {
             "hardware": {"cpu_cores": 32, "ram_gb": 64, "disk_gb": 1000, "disk_type": "NVMe"},
             "software": {**base_software, "os_name": "Ubuntu 24.04"}
+        },
+        "ns-3.41 (Testing)": {
+            "hardware": {"cpu_cores": 4, "ram_gb": 8, "disk_gb": 20, "disk_type": "SSD"},
+            "software": {"os_name": "Ubuntu 22.04", "python": "3.10", "compiler": "g++ 9", "build_system": "cmake and ninja-build", "version_control": "git"}
+        },
+        "ROS2 Humble (Testing)": {
+            "hardware": {"cpu_cores": 2, "ram_gb": 4, "disk_gb": 10, "disk_type": "SSD"},
+            "software": {"os_name": "Ubuntu 22.04", "curl": "latest"}
         }
     }
 

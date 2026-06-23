@@ -134,6 +134,68 @@ INSTALL_STEPS = [
     },
 ]
 
+NS3_INSTALL_STEPS = [
+    {
+        "name":     "Clone NS-3 Development Repository",
+        "command":  "rm -rf /tmp/ns-3-dev && git clone https://gitlab.com/nsnam/ns-3-dev.git /tmp/ns-3-dev",
+        "sudo":     False,
+        "critical": True,
+        "verify":   "ls -la /tmp/ns-3-dev/ns3",
+    },
+    {
+        "name":     "Configure NS-3",
+        "command":  "cd /tmp/ns-3-dev && ./ns3 configure --enable-examples --enable-tests",
+        "sudo":     False,
+        "critical": True,
+        "verify":   None,
+    },
+    {
+        "name":     "Build NS-3 Simulator",
+        "command":  "cd /tmp/ns-3-dev && ./ns3 build",
+        "sudo":     False,
+        "critical": True,
+        "verify":   "ls -la /tmp/ns-3-dev/build",
+    },
+    {
+        "name":     "Test NS-3 Core",
+        "command":  "cd /tmp/ns-3-dev && ./test.py --no-build --suite=core",
+        "sudo":     False,
+        "critical": False,
+        "verify":   None,
+    }
+]
+
+ROS2_INSTALL_STEPS = [
+    {
+        "name":     "Update Apt and Install Curl",
+        "command":  "sudo apt-get update -y && sudo apt-get install curl -y",
+        "sudo":     True,
+        "critical": True,
+        "verify":   "curl --version",
+    },
+    {
+        "name":     "Add ROS2 GPG Key",
+        "command":  "sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg",
+        "sudo":     True,
+        "critical": True,
+        "verify":   "ls /usr/share/keyrings/ros-archive-keyring.gpg",
+    },
+    {
+        "name":     "Add ROS2 Repository",
+        "command":  "echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2) main\" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null",
+        "sudo":     True,
+        "critical": True,
+        "verify":   "cat /etc/apt/sources.list.d/ros2.list",
+    },
+    {
+        "name":     "Install ROS2 Humble Base",
+        "command":  "sudo apt-get update -y && sudo apt-get install -y ros-humble-ros-base",
+        "sudo":     True,
+        "critical": True,
+        "verify":   "ls /opt/ros/humble",
+    }
+]
+
 # ==========================================
 # 3. Post-Installation Verification Suite
 # ==========================================
@@ -796,9 +858,25 @@ def run(context: dict | None = None) -> dict:
     verify_results: list[dict] = []
     installation_ok = False
 
+    try:
+        reqs = json.loads(Path("requirements.json").read_text(encoding="utf-8"))
+        source = reqs.get("source", "").lower()
+        if "ns-3" in source:
+            active_steps = NS3_INSTALL_STEPS
+            system_name = "NS-3 Simulator"
+        elif "ros2" in source:
+            active_steps = ROS2_INSTALL_STEPS
+            system_name = "ROS2 Humble"
+        else:
+            active_steps = INSTALL_STEPS
+            system_name = "ADRA Aurelis"
+    except Exception:
+        active_steps = INSTALL_STEPS
+        system_name = "ADRA Aurelis"
+
     sep = "═" * 56
     print(sep)
-    print(f"  ADRA INSTALLER AGENT — {len(INSTALL_STEPS)} steps")
+    print(f"  {system_name.upper()} INSTALLER AGENT — {len(active_steps)} steps")
     print(sep)
 
     try:
@@ -812,7 +890,7 @@ def run(context: dict | None = None) -> dict:
         # ── Execute steps ─────────────────────────────────────────────────
         skills = load_skills()
         abort = False
-        for idx, step in enumerate(INSTALL_STEPS):
+        for idx, step in enumerate(active_steps):
             if abort:
                 # Mark remaining steps as skipped
                 step_results.append({"step": step, "success": False, "history": [],
@@ -821,7 +899,7 @@ def run(context: dict | None = None) -> dict:
 
             success, history = execute_step(
                 client, step, os_flavor, conn, session_id,
-                sudo_password, idx + 1, len(INSTALL_STEPS), skills
+                sudo_password, idx + 1, len(active_steps), skills
             )
 
             step_results.append({"step": step, "success": success, "history": history,
