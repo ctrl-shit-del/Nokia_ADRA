@@ -84,7 +84,7 @@ class TokenCounter:
         }
 
 
-def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 180) -> tuple[str | None, dict[str, int]]:
+def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 900) -> tuple[str | None, dict[str, int]]:
     model = discover_model()
     
     if model == "mock-model":

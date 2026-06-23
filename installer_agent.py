@@ -7,7 +7,7 @@ import requests
 import datetime
 import time
 from pathlib import Path
-from adra_common import TokenCounter, call_llm as call_llamacpp
+from adra_common import TokenCounter, call_llm as call_llamacpp, set_model_override
 from packages_agent import append_learned_fix, find_learned_fix, load_skills, normalize_error_match
 
 # ==========================================
@@ -228,7 +228,7 @@ def execute_ssh(
 # 6. LLM
 # ==========================================
 def call_llm(prompt: str) -> str | None:
-    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=900)
     return text
 
 
@@ -721,6 +721,7 @@ def check_inventory_gates(inventory: dict) -> tuple[list[str], list[str]]:
 # ==========================================
 def run(context: dict | None = None) -> dict:
     context = context or {}
+    set_model_override(context.get("model"))
     TOKENS.prompt = 0
     TOKENS.completion = 0
     start_time = datetime.datetime.now()
@@ -907,8 +908,16 @@ def run(context: dict | None = None) -> dict:
     }
 
 
+
+import argparse
+def parse_args() -> dict:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", help="Override the automatically discovered llama.cpp model")
+    args, _ = parser.parse_known_args()
+    return {"model": args.model}
+
 def main():
-    print(json.dumps(run(), indent=2))
+    print(json.dumps(run(parse_args()), indent=2))
 
 
 if __name__ == "__main__":

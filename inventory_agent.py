@@ -3,7 +3,7 @@ import re
 import paramiko
 import getpass
 import requests
-from adra_common import TokenCounter, call_llm as call_llamacpp, write_json
+from adra_common import TokenCounter, call_llm as call_llamacpp, write_json, set_model_override
 
 # ==========================================
 # 1. Configuration
@@ -117,7 +117,7 @@ def call_llm(prompt: str) -> str | None:
     Call llama.cpp's OpenAI-compatible endpoint. JSON parsing stays local in
     extract_json() because several models still wrap objects in prose/fences.
     """
-    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=900)
     return text
 
 
@@ -151,7 +151,7 @@ def items_not_yet_collected(collected: list[dict]) -> list[str]:
 # ==========================================
 # 5. Autonomous Planner Loop
 # ==========================================
-def run_inventory_audit(ssh_client: paramiko.SSHClient, reqs: dict):
+def run_inventory_audit(ssh_client: paramiko.SSHClient, reqs: dict, host: str = "default"):
     print("\n--- Starting Autonomous LLM Planner Loop ---")
 
     collected_data: list[dict] = []   # {"item": str, "command": str, "output": str}
@@ -267,7 +267,7 @@ Respond EXACTLY in this format:
     # ==========================================
     # 6. Gap Table Generation
     # ==========================================
-    print("\n--- Generating Final Gap Table (inventory.json) ---")
+    print(f"\n--- Generating Final Gap Table (inventory_{host}.json) ---")
 
     # Separate successful vs failed collections for clarity in the prompt
     good_data = [e for e in collected_data if not e["output"].startswith("ERROR")]
@@ -319,8 +319,8 @@ Respond with ONLY a raw JSON object — no markdown fences, no explanation:
             inv_json = extract_json(raw_result)
             inv_json["malicious_flags"] = reqs.get("malicious_flags", [])
             inv_json["source"] = reqs.get("source")
-            write_json("inventory.json", inv_json)
-            print("Success! Saved to inventory.json")
+            write_json(f"inventory_{host}.json", inv_json)
+            print(f"Success! Saved to inventory_{host}.json")
             print(json.dumps(inv_json, indent=4))
             return inv_json
         except (ValueError, json.JSONDecodeError) as e:
@@ -337,6 +337,7 @@ Respond with ONLY a raw JSON object — no markdown fences, no explanation:
 # ==========================================
 def run(context: dict | None = None) -> dict:
     context = context or {}
+    set_model_override(context.get("model"))
     TOKENS.prompt = 0
     TOKENS.completion = 0
     reqs = load_requirements()
@@ -355,12 +356,12 @@ def run(context: dict | None = None) -> dict:
 
     try:
         client.connect(hostname=host, port=port, username=username, password=ssh_password)
-        inventory = run_inventory_audit(client, reqs)
+        inventory = run_inventory_audit(client, reqs, host=host)
         if not inventory:
             return {"status": "error", "error": "inventory audit failed", "tokens_used": TOKENS.as_dict()}
         return {
             "status": "ok",
-            "result_path": "inventory.json",
+            "result_path": f"inventory_{host}.json",
             "summary": {
                 "malicious_flags": inventory.get("malicious_flags", []),
                 "source": inventory.get("source"),
@@ -374,8 +375,16 @@ def run(context: dict | None = None) -> dict:
         client.close()
 
 
+
+import argparse
+def parse_args() -> dict:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", help="Override the automatically discovered llama.cpp model")
+    args, _ = parser.parse_known_args()
+    return {"model": args.model}
+
 def main():
-    print(json.dumps(run(), indent=2))
+    print(json.dumps(run(parse_args()), indent=2))
 
 
 if __name__ == "__main__":

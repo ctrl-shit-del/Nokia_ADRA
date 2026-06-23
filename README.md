@@ -29,17 +29,31 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**2. Start the Local LLM:**
-Ensure you have an OpenAI-compatible endpoint running. You can launch `llama-server` with your preferred model and an adequate context size (e.g., 8192 tokens for RAG document parsing):
+**2. Start the Local or Remote LLM:**
+Ensure you have an OpenAI-compatible endpoint running. You can launch `llama-server` on your current machine or a separate dedicated machine with a better GPU.
 
+**Option A: Running Locally**
 ```bash
 llama-server \
-  -m /home/mystic/models/qwen25/qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf \
+  -m /path/to/models/qwen2.5-7b-instruct-q5_k_m.gguf \
   -t 16 \
   -c 8192 \
   --port 8080
 ```
-*Set `ADRA_LLAMACPP_URL` and `ADRA_LLAMACPP_MODEL` environment variables if your setup differs from the defaults.*
+
+**Option B: Running on a Remote PC (with a Better GPU)**
+If you have another PC with a stronger GPU (e.g., an RTX 3090/4090 or multiple GPUs), you can run the model there to significantly speed up ADRA's reasoning!
+1. Start `llama-server` on the powerful PC and bind it to its network IP using `--host`:
+   ```bash
+   llama-server -m /path/to/better-model.gguf --host 0.0.0.0 --port 8080 -c 8192 -ngl 99
+   ```
+   *(Note: `-ngl 99` offloads all layers to the GPU for maximum speed).*
+2. On the machine running ADRA, simply set the `ADRA_LLAMACPP_URL` environment variable to point to the powerful PC's IP address before running uvicorn:
+   ```bash
+   export ADRA_LLAMACPP_URL="http://<powerful-pc-ip>:8080/v1/chat/completions"
+   export ADRA_LLAMACPP_MODEL="<better-model-name>" # Optional: matches the model loaded
+   ```
+
 *Note: If no LLM is detected, ADRA will automatically fall back to mock JSON responses to keep the application running.*
 
 **3. Run the Web UI/API (Recommended):**

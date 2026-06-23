@@ -14,6 +14,9 @@ import packages_agent
 import requirements_agent
 from adra_common import list_requirement_profiles, set_token_listener
 
+import sys
+import paramiko
+
 
 app = FastAPI(title="ADRA API", version="2.0")
 WEB_DIR = Path(__file__).parent / "web"
@@ -29,11 +32,31 @@ class AgentContext(BaseModel):
 async def configure_token_events() -> None:
     loop = asyncio.get_running_loop()
 
-    def publish(tokens: dict[str, int]) -> None:
+    def publish_event(data: dict[str, Any]) -> None:
         for queue in list(TOKEN_QUEUES):
-            loop.call_soon_threadsafe(queue.put_nowait, tokens)
+            loop.call_soon_threadsafe(queue.put_nowait, data)
 
-    set_token_listener(publish)
+    set_token_listener(publish_event)
+    
+    class SSEStreamWrapper:
+        def __init__(self, original_stdout):
+            self.original_stdout = original_stdout
+
+        def write(self, data):
+            self.original_stdout.write(data)
+            if data and data.strip():
+                try:
+                    # Only attempt to publish if loop is running
+                    loop = asyncio.get_running_loop()
+                    for queue in list(TOKEN_QUEUES):
+                        loop.call_soon_threadsafe(queue.put_nowait, {"log": data})
+                except RuntimeError:
+                    pass
+
+        def flush(self):
+            self.original_stdout.flush()
+
+    sys.stdout = SSEStreamWrapper(sys.stdout)
 
 
 def result_with_tokens(result: dict[str, Any]) -> dict[str, Any]:
@@ -62,17 +85,52 @@ async def upload_requirements(
     path = UPLOAD_DIR / safe_name
     path.write_bytes(await file.read())
     context = {
-        "mode": "upload",
+        "mode": "upload" if not save_profile else "custom",
         "document_path": str(path),
         "save_profile": save_profile,
         "version": version,
     }
-    return result_with_tokens(requirements_agent.run(context))
+    try:
+        return result_with_tokens(requirements_agent.run(context))
+    finally:
+        if path.exists():
+            path.unlink()
 
+
+import concurrent.futures
 
 @app.post("/api/inventory/run")
 def run_inventory(payload: AgentContext) -> dict[str, Any]:
-    return result_with_tokens(inventory_agent.run(payload.context))
+    context = payload.context
+    hosts = context.get("hosts")
+    
+    if not hosts:
+        # Fallback for single host execution
+        return result_with_tokens(inventory_agent.run(context))
+        
+    results = []
+    total_tokens = {"prompt": 0, "completion": 0, "total": 0}
+    
+    def run_single(host_ctx):
+        # We merge the base context with the specific host context
+        merged_ctx = {**context, **host_ctx}
+        return inventory_agent.run(merged_ctx)
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        futures = {executor.submit(run_single, h): h for h in hosts}
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                res = future.result()
+                results.append(res)
+                t = res.get("tokens_used", {})
+                total_tokens["prompt"] += t.get("prompt", 0)
+                total_tokens["completion"] += t.get("completion", 0)
+                total_tokens["total"] += t.get("total", 0)
+            except Exception as e:
+                h = futures[future]
+                results.append({"status": "error", "host": h.get("host"), "error": str(e)})
+
+    return {"status": "ok", "results": results, "tokens_used": total_tokens}
 
 
 @app.post("/api/packages/run")
@@ -98,6 +156,45 @@ def read_state(filename: str) -> dict[str, Any]:
     return {"status": "ok", "content": path.read_text(encoding="utf-8")}
 
 
+@app.post("/api/terminal/run")
+def run_terminal_command(payload: AgentContext) -> dict[str, Any]:
+    context = payload.context
+    host = context.get("host", "127.0.0.1")
+    port = int(context.get("port", 22))
+    username = context.get("username", "mystic")
+    password = context.get("password", "")
+    command = context.get("command", "")
+    
+    if not command:
+        return {"status": "error", "error": "No command provided"}
+
+    print(f"\\n> {command}")
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        if password:
+            client.connect(hostname=host, port=port, username=username, password=password, timeout=10)
+        else:
+            client.connect(hostname=host, port=port, username=username, timeout=10)
+            
+        stdin, stdout, stderr = client.exec_command(command)
+        exit_code = stdout.channel.recv_exit_status()
+        out = stdout.read().decode("utf-8", errors="replace")
+        err = stderr.read().decode("utf-8", errors="replace")
+        combined = "\\n".join(filter(None, [out, err]))
+        
+        if combined:
+            print(combined)
+            
+        return {"status": "ok", "output": combined, "exit_code": exit_code}
+    except Exception as e:
+        error_msg = str(e)
+        print(f"[SSH Error] {error_msg}")
+        return {"status": "error", "error": error_msg}
+    finally:
+        client.close()
+
+
 @app.get("/api/events")
 async def events() -> StreamingResponse:
     queue: asyncio.Queue = asyncio.Queue()
@@ -105,10 +202,13 @@ async def events() -> StreamingResponse:
 
     async def stream():
         try:
-            yield "event: ready\ndata: {}\n\n"
+            yield "event: ready\\ndata: {}\\n\\n"
             while True:
-                tokens = await queue.get()
-                yield f"event: tokens\ndata: {json.dumps(tokens)}\n\n"
+                data = await queue.get()
+                if "log" in data:
+                    yield f"event: log\\ndata: {json.dumps(data)}\\n\\n"
+                else:
+                    yield f"event: tokens\\ndata: {json.dumps(data)}\\n\\n"
         finally:
             TOKEN_QUEUES.discard(queue)
 

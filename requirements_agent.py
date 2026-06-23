@@ -10,6 +10,7 @@ from adra_common import (
     load_requirement_profile,
     save_requirement_profile,
     write_json,
+    set_model_override,
 )
 
 # ==========================================
@@ -69,7 +70,7 @@ def call_llm(prompt: str) -> str | None:
     Call llama.cpp's OpenAI-compatible endpoint and parse the response ourselves,
     which handles fence-wrapping and thinking models more reliably.
     """
-    text, _ = call_llamacpp(prompt, TOKENS, timeout=180)
+    text, _ = call_llamacpp(prompt, TOKENS, timeout=900)
     return text
 
 
@@ -142,7 +143,7 @@ def ingest_text_document(filepath: str) -> str:
 # ==========================================
 # 5. Targeted RAG Queries
 # ==========================================
-def retrieve_context(queries: list[str], n_results: int = 5) -> str:
+def retrieve_context(queries: list[str], n_results: int = 5, where_filter: dict | None = None) -> str:
     """
     Run multiple targeted queries and return deduplicated context.
     Using multiple focused queries catches requirements that a single
@@ -153,10 +154,14 @@ def retrieve_context(queries: list[str], n_results: int = 5) -> str:
     all_docs = []
 
     for query in queries:
-        results = collection.query(
-            query_embeddings=embedder.encode([query]).tolist(),
-            n_results=n_results,
-        )
+        kwargs = {
+            "query_embeddings": embedder.encode([query]).tolist(),
+            "n_results": n_results,
+        }
+        if where_filter:
+            kwargs["where"] = where_filter
+            
+        results = collection.query(**kwargs)
         for doc, meta, doc_id in zip(
             results["documents"][0],
             results["metadatas"][0],
@@ -230,7 +235,7 @@ If nothing is suspicious, return {{"malicious_flags":[]}}."""
         return flags
 
 
-def extract_requirements(source: str | None = None) -> dict | None:
+def extract_requirements(source: str | None = None, source_doc_sha: str | None = None) -> dict | None:
     print("\n--- Starting Requirements Extraction ---")
 
     # Multiple targeted queries — each one retrieves different relevant chunks.
@@ -247,7 +252,8 @@ def extract_requirements(source: str | None = None) -> dict | None:
     ]
 
     print(f"Running {len(queries)} targeted queries against the vector DB...")
-    context = retrieve_context(queries, n_results=5)
+    where_filter = {"sha256": source_doc_sha} if source_doc_sha else None
+    context = retrieve_context(queries, n_results=5, where_filter=where_filter)
     print(f"Retrieved {len(context)} characters of context.\n")
 
     # NOTE: Field names here match EXACTLY what inventory_agent.py expects.
@@ -268,17 +274,15 @@ RULES:
 Output EXACTLY this structure (field names must match exactly):
 {{
     "hardware": {{
-        "cpu_cores":  <integer minimum cores, e.g. 12>,
-        "ram_gb":     <integer minimum RAM in GB, e.g. 32>,
-        "disk_gb":    <integer minimum disk in GB, e.g. 200>,
-        "disk_type":  "<SSD or HDD>"
+        "cpu_cores":  <integer minimum cores, or null if not found>,
+        "ram_gb":     <integer minimum RAM in GB, or null if not found>,
+        "disk_gb":    <integer minimum disk in GB, or null if not found>,
+        "disk_type":  "<SSD or HDD, or null if not found>"
     }},
     "software": {{
-        "os_name":    "<supported OS, e.g. Ubuntu 22.04 or RHEL 8>",
-        "python":     "<minimum version string, e.g. 3.10>",
-        "docker":     "<minimum version string, e.g. 20.10>",
-        "kubernetes": "<minimum version string, e.g. 1.26>",
-        "helm":       "<minimum version string, e.g. 3.10>"
+        "os_name":    "<supported OS name/version, or null if not found>",
+        "python":     "<minimum version string, or null if not found>",
+        "<any_other_software_name_found_in_doc>": "<minimum version string, or null if not found>"
     }}
 }}"""
 
@@ -321,6 +325,7 @@ Output EXACTLY this structure (field names must match exactly):
 
 def run(context: dict | None = None) -> dict:
     context = context or {}
+    set_model_override(context.get("model"))
     mode = context.get("mode", "docs")
     TOKENS.prompt = 0
     TOKENS.completion = 0
@@ -356,7 +361,7 @@ def run(context: dict | None = None) -> dict:
         ingest_documents()
         source = "docs"
 
-    req_json = extract_requirements(source=source)
+    req_json = extract_requirements(source=source, source_doc_sha=source_doc_sha)
     if not req_json:
         return {"status": "error", "error": "requirements extraction failed", "tokens_used": TOKENS.as_dict()}
 
@@ -387,6 +392,7 @@ def parse_args() -> dict:
     parser.add_argument("--document-path")
     parser.add_argument("--save-profile", action="store_true")
     parser.add_argument("--created-by")
+    parser.add_argument("--model", help="Override the automatically discovered llama.cpp model")
     args = parser.parse_args()
     return {
         "mode": "profile" if args.mode in ("dropdown", "known") else args.mode,
@@ -394,6 +400,7 @@ def parse_args() -> dict:
         "document_path": args.document_path,
         "save_profile": args.save_profile,
         "created_by": args.created_by,
+        "model": args.model,
     }
 
 

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NS-3 Network Simulator - Installation Guide</title>
+    <style>
+        :root {
+            --primary: #003366;
+            --secondary: #f4f7f6;
+            --text: #333333;
+            --border: #cccccc;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: var(--text);
+            max-width: 850px;
+            margin: 40px auto;
+            padding: 0 20px;
+            background-color: #ffffff;
+        }
+        h1, h2, h3 {
+            color: var(--primary);
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 8px;
+            margin-top: 30px;
+        }
+        h1 {
+            border-bottom: 2px solid var(--primary);
+        }
+        .req-block {
+            background: var(--secondary);
+            padding: 15px 25px;
+            border-left: 4px solid var(--primary);
+            margin-bottom: 20px;
+            border-radius: 0 4px 4px 0;
+        }
+        ul {
+            margin: 0;
+            padding-left: 20px;
+        }
+        li {
+            margin-bottom: 8px;
+        }
+        code {
+            background: #eef1f5;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.9em;
+            color: #d63384;
+        }
+        pre {
+            background: #1e1e1e;
+            color: #d4d4d4;
+            padding: 15px;
+            overflow-x: auto;
+            border-radius: 6px;
+            font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, Courier, monospace;
+            font-size: 0.9em;
+        }
+        pre code {
+            background: transparent;
+            color: inherit;
+            padding: 0;
+        }
+        .warning-box {
+            background-color: #fff3cd;
+            color: #856404;
+            border: 1px solid #ffeeba;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>NS-3 Network Simulator - Deployment Guide</h1>
+    <p>This document outlines the official requirements and procedure for deploying the NS-3 Network Simulator on a target Linux server.</p>
+
+    <h2>1. Hardware Requirements</h2>
+    <p>To ensure stable simulation environments and prevent kernel panics during high-throughput virtual network tests, the target server must meet the following specifications:</p>
+    <div class="req-block">
+        <ul>
+            <li><strong>CPU:</strong> Minimum 1 cores (8+ cores strongly recommended for parallel builds)</li>
+            <li><strong>RAM:</strong> 2 GB minimum</li>
+            <li><strong>Storage:</strong> 25 GB SSD (NVMe preferred for pcap trace writing)</li>
+            <li><strong>Architecture:</strong> x86_64 or ARM64</li>
+        </ul>
+    </div>
+
+    <h2>2. Software Requirements</h2>
+    <p>The following software stack is required to compile and run NS-3 correctly:</p>
+    <div class="req-block">
+        <ul>
+            <li><strong>Operating System:</strong> Ubuntu 22.04 LTS</li>
+            <li><strong>Python:</strong> Python 3.9 or higher</li>
+            <li><strong>Compiler:</strong> g++ (version 9 or newer)</li>
+            <li><strong>Build System:</strong> cmake and ninja-build</li>
+            <li><strong>Version Control:</strong> git</li>
+        </ul>
+    </div>
+
+    <h2>3. Pre-Installation Environment Setup</h2>
+    <p>Before installing NS-3 dependencies, ensure the target server's package index is up to date. Additionally, because NS-3 requires raw socket access for emulation features (e.g., FdNetDevice), you must relax the host firewall temporarily during the testing phase.</p>
+    
+    <div class="warning-box">
+        <strong>Security Notice:</strong> The following commands flush the firewall rules. Only do this in a controlled lab environment.
+    </div>
+
+    <pre><code>sudo apt-get update
+sudo apt-get upgrade -y
+
+# Disable firewall to allow raw socket bridging
+systemctl stop firewalld
+iptables -F</code></pre>
+
+    <h2>4. Package Installation</h2>
+    <p>Install the required compilation and Python dependencies using the APT package manager:</p>
+    <pre><code>sudo apt-get install -y build-essential python3 python3-dev cmake ninja-build git g++</code></pre>
+
+    <h2>5. Downloading and Building NS-3</h2>
+    <p>Clone the official repository and build the simulator framework using CMake and Ninja:</p>
+    <pre><code>mkdir -p /opt/ns3
+cd /opt/ns3
+git clone https://gitlab.com/nsnam/ns-3-dev.git
+cd ns-3-dev
+
+# Configure the build profile
+./ns3 configure --build-profile=optimized --enable-examples --enable-tests
+
+# Build the simulator
+./ns3 build</code></pre>
+
+    <h2>6. Validation</h2>
+    <p>Run the built-in test suite to ensure the installation was successful and the physics engine is stable.</p>
+    <pre><code>./test.py</code></pre>
+
+</body>
+</html>

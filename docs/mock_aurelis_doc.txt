@@ -12,3 +12,10 @@ Python version 3.10 or higher is required, along with the pip package manager.
 Docker must be installed, with a minimum version of 20.10.
 Kubernetes is required for orchestration, minimum version 1.26, utilizing the containerd runtime.
 Helm version 3.10 or higher must be present for chart deployments.
+
+
+
+
+
+
+files maintained pdf/ html

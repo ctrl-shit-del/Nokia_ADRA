@@ -6,7 +6,7 @@
   <title>ADRA Command Center</title>
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
     tailwind.config = {
@@ -41,7 +41,7 @@
 <body class="bg-slate-50 text-slate-900 antialiased h-screen flex flex-col overflow-hidden">
   <div id="root" class="h-full flex flex-col"></div>
 
-  <script type="text/babel">
+  <script type="text/babel" data-presets="react">
     const { useState, useEffect, useRef } = React;
 
     // --- Icons ---
@@ -90,19 +90,18 @@
       const [mode, setMode] = useState('profile');
       const [profiles, setProfiles] = useState([]);
       const [selectedProfile, setSelectedProfile] = useState('');
+      const [selectedFile, setSelectedFile] = useState(null);
+      const [customVersion, setCustomVersion] = useState('');
       const [reqs, setReqs] = useState({ hardware: {}, software: {}, flags: {} });
       const [loading, setLoading] = useState(false);
 
       useEffect(() => {
-        fetch('/api/profiles')
-          .then(res => res.json())
-          .then(data => {
-            setProfiles(data.profiles || []);
-            if (data.profiles && data.profiles.length > 0) {
-              setSelectedProfile(data.profiles[0]);
-            }
-          });
-        
+        fetch('/api/profiles').then(r => r.json()).then(d => {
+          if (d.profiles && d.profiles.length > 0) {
+            setProfiles(d.profiles);
+            setSelectedProfile(d.profiles[0]);
+          }
+        });
         fetch('/api/state/requirements.json')
           .then(res => res.json())
           .then(data => {
@@ -110,50 +109,61 @@
           });
       }, []);
 
-      const runReqs = async () => {
-        setLoading(true);
-        try {
-          const res = await fetch('/api/requirements/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: { mode: 'profile', version: selectedProfile } })
-          });
-          const result = await res.json();
-          if (result.status === 'ok') {
-            const stateRes = await fetch('/api/state/requirements.json');
-            const stateData = await stateRes.json();
-            if (stateData.status === 'ok') setReqs(stateData.content);
+      const handleExtract = async () => {
+        if (mode === 'profile') {
+          setLoading(true);
+          try {
+            const res = await fetch('/api/requirements/run', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ context: { mode: 'profile', version: selectedProfile } })
+            });
+            const result = await res.json();
+            if (result.tokens_used && window.updateTokens) window.updateTokens(result.tokens_used);
+            if (result.status === 'ok') {
+              const stateRes = await fetch('/api/state/requirements.json');
+              const stateData = await stateRes.json();
+              if (stateData.status === 'ok') setReqs(stateData.content);
+            }
+          } catch (err) {
+            console.error("Failed to run requirements:", err);
+          } finally {
+            setLoading(false);
           }
-        } catch (err) {
-          console.error("Failed to run requirements:", err);
-        } finally {
-          setLoading(false);
+        } else {
+          if (!selectedFile) return;
+          setLoading(true);
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          if (mode === 'custom' && customVersion) {
+            formData.append('save_profile', 'true');
+            formData.append('version', customVersion);
+          } else {
+            formData.append('save_profile', 'false');
+          }
+          try {
+            const res = await fetch('/api/requirements/upload', {
+              method: 'POST',
+              body: formData
+            });
+            const result = await res.json();
+            if (result.tokens_used && window.updateTokens) window.updateTokens(result.tokens_used);
+            if (result.status === 'ok') {
+              const stateRes = await fetch('/api/state/requirements.json');
+              const stateData = await stateRes.json();
+              if (stateData.status === 'ok') setReqs(stateData.content);
+            }
+          } catch (err) {
+            console.error("Upload failed:", err);
+          } finally {
+            setLoading(false);
+          }
         }
       };
 
-      const handleFileUpload = async (e) => {
+      const handleFileSelect = (e) => {
         const file = e.target.files[0];
-        if (!file) return;
-        setLoading(true);
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('save_profile', 'false');
-        try {
-          const res = await fetch('/api/requirements/upload', {
-            method: 'POST',
-            body: formData
-          });
-          const result = await res.json();
-          if (result.status === 'ok') {
-            const stateRes = await fetch('/api/state/requirements.json');
-            const stateData = await stateRes.json();
-            if (stateData.status === 'ok') setReqs(stateData.content);
-          }
-        } catch (err) {
-          console.error("Upload failed:", err);
-        } finally {
-          setLoading(false);
-        }
+        if (file) setSelectedFile(file);
       };
 
       return (
@@ -187,25 +197,25 @@
               {mode === 'upload' && (
                 <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50 relative cursor-pointer hover:bg-slate-100 transition-colors">
                   <IconUpload className="w-6 h-6 mb-2" />
-                  <span className="text-sm">Click to browse or Drag and drop PDF/HTML</span>
-                  <input type="file" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                  <span className="text-sm">{selectedFile ? selectedFile.name : 'Click to browse or Drag and drop PDF/HTML'}</span>
+                  <input type="file" onChange={handleFileSelect} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                 </div>
               )}
               {mode === 'custom' && (
                 <div className="flex-1 flex gap-4">
                   <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50 relative cursor-pointer hover:bg-slate-100 transition-colors">
                     <IconUpload className="w-6 h-6 mb-2" />
-                    <span className="text-sm">Upload Manual</span>
-                    <input type="file" onChange={handleFileUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                    <span className="text-sm">{selectedFile ? selectedFile.name : 'Upload Manual'}</span>
+                    <input type="file" onChange={handleFileSelect} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
                   </div>
                   <div className="flex-1 flex flex-col justify-end">
                     <label className="block text-xs font-medium text-slate-500 mb-1">Save Profile As</label>
-                    <input type="text" placeholder="xyz26.5-custom" className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-teal-500" />
+                    <input type="text" placeholder="xyz26.5-custom" value={customVersion} onChange={e => setCustomVersion(e.target.value)} className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-2 focus:outline-none focus:border-teal-500" />
                   </div>
                 </div>
               )}
               <div className="pb-0.5">
-                <button onClick={runReqs} disabled={loading || mode !== 'profile'} className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
+                <button onClick={handleExtract} disabled={loading || (mode !== 'profile' && !selectedFile)} className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2">
                   {loading && <IconLoader className="w-4 h-4 text-white" />}
                   Extract Requirements
                 </button>
@@ -263,35 +273,62 @@
     };
 
     const InventoryTab = () => {
+      const [mode, setMode] = useState('single');
       const [host, setHost] = useState('10.0.4.11');
       const [user, setUser] = useState('mystic');
       const [pass, setPass] = useState('');
+      const [fleet, setFleet] = useState([]);
+      const [fleetResults, setFleetResults] = useState([]);
       const [inventory, setInventory] = useState({ hardware: [], software: [] });
       const [loading, setLoading] = useState(false);
+      const [viewedHost, setViewedHost] = useState(null);
 
-      const fetchInventory = () => {
-        fetch('/api/state/inventory.json')
+      const fetchInventory = (targetHost) => {
+        if (!targetHost) return;
+        fetch('/api/state/inventory_' + targetHost + '.json')
           .then(res => res.json())
           .then(data => {
-            if (data.status === 'ok') setInventory(data.content);
-          });
+            if (data.status === 'ok') {
+               setInventory(data.content);
+               setViewedHost(targetHost);
+            } else {
+               setInventory({ hardware: [], software: [] });
+            }
+          })
+          .catch(() => setInventory({ hardware: [], software: [] }));
       };
 
-      useEffect(() => {
-        fetchInventory();
-      }, []);
+      const handleCsvUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (evt) => {
+          const text = evt.target.result;
+          const lines = text.split('\n').filter(l => l.trim());
+          const hosts = lines.map(line => {
+            const parts = line.split(',');
+            return { host: parts[0]?.trim(), username: parts[1]?.trim() || 'mystic', password: parts[2]?.trim() || '' };
+          });
+          setFleet(hosts);
+        };
+        reader.readAsText(file);
+      };
 
       const runInventory = async () => {
         setLoading(true);
+        setFleetResults([]);
+        let targetHosts = mode === 'single' ? [{ host, username: user, password: pass }] : fleet;
         try {
           const res = await fetch('/api/inventory/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: { host, username: user, password: pass } })
+            body: JSON.stringify({ context: { hosts: targetHosts } })
           });
           const result = await res.json();
+          if (result.tokens_used && window.updateTokens) window.updateTokens(result.tokens_used);
           if (result.status === 'ok') {
-            fetchInventory();
+            setFleetResults(result.results || []);
+            if (mode === 'single') fetchInventory(host);
           } else {
             alert('Inventory failed: ' + (result.error || 'Unknown error'));
           }
@@ -308,50 +345,103 @@
 
       return (
         <div className="flex flex-col h-full gap-4">
-          <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4 flex gap-4 items-end">
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Target Host</label>
-              <input 
-                type="text" 
-                value={host} 
-                onChange={e => setHost(e.target.value)}
-                className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
-              />
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm p-4">
+            <div className="flex border-b border-slate-200 mb-4">
+              {['single', 'bulk'].map(m => (
+                <button 
+                  key={m} 
+                  onClick={() => setMode(m)}
+                  className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${mode === m ? 'border-teal-600 text-teal-700' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                >
+                  {m === 'single' ? 'Single Host' : 'Bulk Upload (CSV)'}
+                </button>
+              ))}
             </div>
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-500 mb-1">User</label>
-              <input 
-                type="text" 
-                value={user} 
-                onChange={e => setUser(e.target.value)}
-                className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
-              />
+
+            <div className="flex gap-4 items-end">
+              {mode === 'single' ? (
+                <>
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Target Host</label>
+                    <input 
+                      type="text" 
+                      value={host} 
+                      onChange={e => setHost(e.target.value)}
+                      className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">User</label>
+                    <input 
+                      type="text" 
+                      value={user} 
+                      onChange={e => setUser(e.target.value)}
+                      className="w-full font-mono text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Password / Key</label>
+                    <input 
+                      type="password" 
+                      value={pass} 
+                      onChange={e => setPass(e.target.value)}
+                      placeholder="Required for sudo"
+                      className="w-full text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
+                    />
+                  </div>
+                </>
+              ) : (
+                <div className="flex-1 border-2 border-dashed border-slate-300 rounded-lg p-6 flex flex-col items-center justify-center text-slate-500 bg-slate-50 relative cursor-pointer hover:bg-slate-100 transition-colors">
+                  <IconUpload className="w-6 h-6 mb-2" />
+                  <span className="text-sm">{fleet.length > 0 ? `Loaded ${fleet.length} hosts` : 'Upload CSV (Host, User, Password)'}</span>
+                  <input type="file" accept=".csv" onChange={handleCsvUpload} className="absolute inset-0 w-full h-full opacity-0 cursor-pointer" />
+                </div>
+              )}
+              <div className="pb-0.5">
+                <button 
+                  onClick={runInventory}
+                  disabled={loading || (mode === 'bulk' && fleet.length === 0)}
+                  className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-2 rounded text-sm font-medium transition-colors flex items-center gap-2 h-[38px]"
+                >
+                  {loading && <IconLoader className="w-4 h-4 text-white" />}
+                  Run Inventory
+                </button>
+              </div>
             </div>
-            <div className="flex-1">
-              <label className="block text-xs font-medium text-slate-500 mb-1">Password / Key</label>
-              <input 
-                type="password" 
-                value={pass} 
-                onChange={e => setPass(e.target.value)}
-                placeholder="Required for sudo"
-                className="w-full text-sm border border-slate-300 rounded px-3 py-1.5 focus:outline-none focus:border-teal-500" 
-              />
-            </div>
-            <button 
-              onClick={runInventory}
-              disabled={loading}
-              className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2"
-            >
-              {loading && <IconLoader className="w-4 h-4 text-white" />}
-              Run Inventory
-            </button>
           </div>
+
+          {mode === 'bulk' && fleetResults.length > 0 && (
+            <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex flex-col mb-4 max-h-48 overflow-auto">
+              <table className="w-full text-left border-collapse whitespace-nowrap">
+                <thead className="bg-slate-50 text-slate-500 text-[11px] uppercase tracking-wider sticky top-0 z-10 shadow-sm">
+                  <tr>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Host</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Status</th>
+                    <th className="px-4 py-2 font-medium border-b border-slate-200">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="text-[13px] divide-y divide-slate-100">
+                  {fleetResults.map((res, i) => (
+                    <tr key={i} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-2 font-mono text-slate-800">{res.host || fleet[i]?.host}</td>
+                      <td className="px-4 py-2 text-slate-600">{res.status === 'ok' ? <span className="text-teal-600">Success</span> : <span className="text-rose-600">Failed: {res.error}</span>}</td>
+                      <td className="px-4 py-2">
+                         {res.status === 'ok' && (
+                           <button onClick={() => fetchInventory(res.host || fleet[i]?.host)} className="text-teal-600 font-medium text-xs">View Gap Analysis</button>
+                         )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden">
             <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-              <h3 className="font-semibold text-slate-800 text-sm">Gap Analysis</h3>
+              <h3 className="font-semibold text-slate-800 text-sm">Gap Analysis {viewedHost && `(${viewedHost})`}</h3>
               <div className="flex gap-2 items-center">
-                 <button onClick={fetchInventory} className="text-xs text-teal-600 hover:text-teal-800">Refresh</button>
+                 <button onClick={() => fetchInventory(viewedHost || host)} className="text-xs text-teal-600 hover:text-teal-800">Refresh</button>
                  <div className="text-sm text-slate-600 bg-white border border-slate-200 px-3 py-1 rounded-full shadow-sm">
                    <span className="font-medium text-slate-900">{metCount}</span> of {allItems.length} requirements met
                  </div>
@@ -657,21 +747,131 @@
       );
     }
 
+    const TerminalTab = ({ logs }) => {
+      const [cmd, setCmd] = useState('');
+      const [host, setHost] = useState('10.0.4.11');
+      const [user, setUser] = useState('mystic');
+      const [pass, setPass] = useState('');
+      const [loading, setLoading] = useState(false);
+      const endRef = useRef(null);
+
+      useEffect(() => {
+        endRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, [logs]);
+
+      const runCommand = async (e) => {
+        e.preventDefault();
+        if (!cmd.trim()) return;
+        setLoading(true);
+        try {
+          await fetch('/api/terminal/run', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ context: { host, username: user, password: pass, command: cmd } })
+          });
+          setCmd('');
+        } catch(err) {
+          console.error(err);
+        } finally {
+          setLoading(false);
+        }
+      };
+
+      return (
+        <div className="bg-[#0a0a0a] border border-slate-700 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
+          <div className="p-3 border-b border-slate-700 bg-slate-800 flex justify-between items-center shrink-0">
+             <div className="flex gap-4 items-center">
+                <input className="bg-slate-700 text-white px-2 py-1 rounded text-xs focus:outline-none" value={host} onChange={e=>setHost(e.target.value)} placeholder="Host" />
+                <input className="bg-slate-700 text-white px-2 py-1 rounded text-xs focus:outline-none" value={user} onChange={e=>setUser(e.target.value)} placeholder="User" />
+                <input className="bg-slate-700 text-white px-2 py-1 rounded text-xs focus:outline-none" type="password" value={pass} onChange={e=>setPass(e.target.value)} placeholder="Password" />
+             </div>
+             <span className="text-xs text-slate-400 font-mono">ADRA SSH Terminal</span>
+          </div>
+          <div className="overflow-auto flex-1 p-4 font-mono text-[13px] whitespace-pre-wrap text-teal-400 break-words leading-relaxed">
+             {logs.map((log, i) => <div key={i}>{log}</div>)}
+             <div ref={endRef} />
+          </div>
+          <div className="p-3 bg-slate-800 border-t border-slate-700 flex">
+             <span className="text-teal-400 font-mono mr-2 pt-1.5">$</span>
+             <form onSubmit={runCommand} className="flex-1 flex gap-2">
+               <input 
+                 className="flex-1 bg-transparent border-none text-white font-mono text-sm focus:outline-none focus:ring-0" 
+                 value={cmd} 
+                 onChange={e=>setCmd(e.target.value)} 
+                 placeholder="Enter shell command..." 
+               />
+               <button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded text-xs font-medium uppercase tracking-wider">Run</button>
+             </form>
+          </div>
+        </div>
+      );
+    }
+
     // --- Main App ---
     const App = () => {
       const [activeTab, setActiveTab] = useState('requirements');
       const [tokens, setTokens] = useState({ prompt: 0, completion: 0, total: 0 });
+      const [logs, setLogs] = useState([]);
+      const [runTime, setRunTime] = useState(0);
+      const timerRef = React.useRef(null);
 
       useEffect(() => {
+        const originalFetch = window.fetch;
+        let activeRequests = 0;
+        let start = 0;
+
+        window.fetch = async function(...args) {
+          // Exclude state polling or minor endpoints from the timer if needed
+          const url = typeof args[0] === 'string' ? args[0] : args[0].url;
+          if (url.includes('/api/state/') || url.includes('/api/profiles')) {
+             return originalFetch.apply(this, args);
+          }
+
+          activeRequests++;
+          if (activeRequests === 1) {
+            start = Date.now();
+            setRunTime(0);
+            timerRef.current = setInterval(() => {
+              setRunTime(Date.now() - start);
+            }, 100);
+          }
+          try {
+            return await originalFetch.apply(this, args);
+          } finally {
+            activeRequests--;
+            if (activeRequests === 0) {
+              clearInterval(timerRef.current);
+            }
+          }
+        };
+
+        return () => {
+          window.fetch = originalFetch;
+          clearInterval(timerRef.current);
+        };
+      }, []);
+
+      useEffect(() => {
+        window.updateTokens = (usage) => {
+          setTokens({
+            prompt: usage.prompt || 0,
+            completion: usage.completion || 0,
+            total: usage.total || 0
+          });
+        };
         const source = new EventSource('/api/events');
         source.addEventListener('tokens', event => {
           try {
             const usage = JSON.parse(event.data);
-            setTokens(t => ({
-              prompt: t.prompt + (usage.prompt || 0),
-              completion: t.completion + (usage.completion || 0),
-              total: t.total + (usage.total || 0)
-            }));
+            window.updateTokens(usage);
+          } catch(e){}
+        });
+        source.addEventListener('log', event => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.log) {
+              setLogs(prev => [...prev, data.log].slice(-2000));
+            }
           } catch(e){}
         });
         return () => source.close();
@@ -682,7 +882,8 @@
         { id: 'inventory', label: 'Inventory' },
         { id: 'packages', label: 'Packages' },
         { id: 'installer', label: 'Installer' },
-        { id: 'report', label: 'Fleet Report' }
+        { id: 'report', label: 'Fleet Report' },
+        { id: 'terminal', label: 'Terminal' }
       ];
 
       return (
@@ -717,6 +918,7 @@
             {activeTab === 'packages' && <PackagesTab />}
             {activeTab === 'installer' && <InstallerTab />}
             {activeTab === 'report' && <ReportTab />}
+            {activeTab === 'terminal' && <TerminalTab logs={logs} />}
           </main>
 
           <footer className="bg-[#0F172A] text-slate-400 shrink-0 border-t border-slate-800 px-6 py-1.5 flex justify-between items-center text-xs font-mono">
@@ -739,6 +941,14 @@
                 <span className="text-slate-400 uppercase tracking-widest text-[10px]">Total Tokens</span>
                 <span className={`w-14 text-right font-semibold ${tokens.total === 0 ? 'text-emerald-400' : 'text-amber-400'}`}>
                   {tokens.total}
+                </span>
+              </div>
+              <div className="flex gap-2 items-center bg-slate-800 px-3 py-1 rounded">
+                <span className="text-slate-400 uppercase tracking-widest text-[10px]">Time</span>
+                <span className="text-amber-400 w-12 text-right font-semibold">
+                  {runTime >= 60000 
+                    ? `${Math.floor(runTime / 60000)}m ${((runTime % 60000) / 1000).toFixed(0)}s` 
+                    : `${(runTime / 1000).toFixed(1)}s`}
                 </span>
               </div>
             </div>
