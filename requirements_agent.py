@@ -316,6 +316,12 @@ Output EXACTLY this structure (field names must match exactly):
     if source:
         req_json["source"] = source
 
+    # Strip null-valued fields so the inventory agent only checks items
+    # that were actually specified in the uploaded document
+    for section in ("hardware", "software"):
+        if section in req_json:
+            req_json[section] = {k: v for k, v in req_json[section].items() if v is not None}
+
     write_json("requirements.json", req_json)
 
     print("\nSuccess! Saved to requirements.json:")

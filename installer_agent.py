@@ -79,12 +79,29 @@ Output ONLY a raw JSON array. No markdown fences, no explanation.
     try:
         text = re.sub(r"```(?:json)?\s*", "", raw)
         text = re.sub(r"```", "", text).strip()
+        # Remove <think>...</think> blocks
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
         match = re.search(r"\[.*\]", text, re.DOTALL)
-        if match:
-            return json.loads(match.group())
-        return json.loads(text)
+        json_text = match.group() if match else text
+        # Fix invalid backslash escapes that LLMs commonly produce
+        json_text = re.sub(r'\\(?!["\\bfnrtu/])', r'\\\\', json_text)
+        return json.loads(json_text)
     except Exception as e:
         print(f"  [Planner] Failed to parse generated steps: {e}")
+        print(f"  [Planner] Retrying LLM generation...")
+        # Retry once with a stricter prompt
+        raw2 = call_llm(prompt + "\nIMPORTANT: Your previous response had a JSON parse error. Ensure all backslashes in commands are properly escaped as double backslashes. Output ONLY the raw JSON array.")
+        if raw2:
+            try:
+                text2 = re.sub(r"```(?:json)?\s*", "", raw2)
+                text2 = re.sub(r"```", "", text2).strip()
+                text2 = re.sub(r"<think>.*?</think>", "", text2, flags=re.DOTALL).strip()
+                match2 = re.search(r"\[.*\]", text2, re.DOTALL)
+                json_text2 = match2.group() if match2 else text2
+                json_text2 = re.sub(r'\\(?!["\\bfnrtu/])', r'\\\\', json_text2)
+                return json.loads(json_text2)
+            except Exception as e2:
+                print(f"  [Planner] Retry also failed: {e2}")
         return []
 
 
@@ -690,6 +707,34 @@ def run(context: dict | None = None) -> dict:
         _, uid = execute_ssh(client, "id -u", sudo_password=None)
         if uid.strip() == "0":
             print("  [Info] Running as root — sudo calls will not require a password.")
+
+        # ── Pre-flight: sanitise broken apt sources ───────────────────────
+        # Previous failed installations (e.g. ROS2) can leave broken
+        # .list files that reference non-existent keyrings, poisoning
+        # every subsequent `apt-get update`.  Clean them up.
+        print("\n  ── Pre-flight: checking apt sources health ──")
+        apt_exit, apt_out = execute_ssh(client, "sudo apt-get update -qq 2>&1", sudo_password)
+        if apt_exit != 0 and "Conflicting values" in apt_out:
+            print("  [Fix] Detected conflicting apt source. Attempting cleanup...")
+            # Find the offending .list file from the error message
+            conflicting_match = re.search(r'source\s+(\S+)', apt_out)
+            # Remove known problematic source files
+            cleanup_cmds = [
+                "sudo rm -f /etc/apt/sources.list.d/ros2*.list",
+                "sudo rm -f /etc/apt/sources.list.d/ros2.list",
+                "sudo rm -f /etc/apt/sources.list.d/ros2-latest.list",
+                "sudo apt-get update -qq 2>&1",
+            ]
+            for cmd in cleanup_cmds:
+                execute_ssh(client, cmd, sudo_password)
+            # Verify apt is healthy now
+            v_exit, v_out = execute_ssh(client, "sudo apt-get update -qq 2>&1", sudo_password)
+            if v_exit == 0:
+                print("  [Fix] ✓ apt sources cleaned up successfully.")
+            else:
+                print(f"  [Fix] ⚠ apt sources may still have issues: {v_out[:200]}")
+        elif apt_exit == 0:
+            print("  [OK] apt sources are healthy.")
 
         # ── Execute steps ─────────────────────────────────────────────────
         skills = load_skills()

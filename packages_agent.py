@@ -404,7 +404,69 @@ JSON FORMAT:
 
 
 # ==========================================
-# 9. Single-Package Installer
+# 9a. LLM-Driven Skill Generation
+# ==========================================
+def generate_skill_from_llm(pkg_name: str, os_flavor: str) -> dict | None:
+    """Ask the LLM how to install a package and return a skill dict."""
+    prompt = f"""You are an expert Linux sysadmin. I need to install '{pkg_name}' on an '{os_flavor}' system.
+
+Provide the installation instructions as a JSON object with EXACTLY these keys:
+- "description": a short one-line description of what this package is
+- "check_cmd": a shell command to check if it's already installed (exit 0 = installed)
+- "install": an object with OS keys, each containing an array of shell commands to install it
+- "verify_cmd": a shell command to verify it's working after installation
+
+CRITICAL RULES:
+- All commands that write to system paths MUST start with 'sudo'.
+- Do NOT pipe into sudo (e.g. avoid 'curl | sudo bash'). Use 'sudo bash -c' instead.
+- Include both 'ubuntu' and 'rhel' install paths if possible.
+
+Output ONLY a raw JSON object — no markdown, no explanation.
+{{
+  "description": "short description",
+  "check_cmd": "command to check if installed",
+  "install": {{
+    "ubuntu": ["sudo apt-get update -y", "sudo apt-get install -y {pkg_name}"],
+    "rhel": ["sudo yum install -y {pkg_name}"]
+  }},
+  "verify_cmd": "command to verify installation"
+}}"""
+
+    raw = call_llm(prompt)
+    if not raw:
+        return None
+
+    try:
+        return extract_json(raw)
+    except (ValueError, json.JSONDecodeError) as e:
+        print(f"  [Auto] Failed to parse LLM skill response: {e}")
+        # Fallback to a simple generic skill
+        return {
+            "description": f"{pkg_name} (auto-generated fallback)",
+            "check_cmd": f"which {pkg_name} 2>&1 || dpkg -s {pkg_name} 2>&1 | grep -q 'Status: install'",
+            "install": {
+                "ubuntu": ["sudo apt-get update -y", f"sudo apt-get install -y {pkg_name}"],
+                "rhel": [f"sudo yum install -y {pkg_name}"],
+            },
+            "verify_cmd": f"which {pkg_name} 2>&1 || dpkg -s {pkg_name} 2>&1 | head -3",
+        }
+
+
+def save_skill_yaml(pkg_name: str, skill: dict) -> None:
+    """Persist a skill dict to skills/<pkg_name>.yaml for future reuse."""
+    SKILLS_DIR.mkdir(exist_ok=True)
+    # Sanitise the filename — replace problematic chars
+    safe_name = pkg_name.replace("+", "plus").replace("/", "_")
+    filepath = SKILLS_DIR / f"{safe_name}.yaml"
+    try:
+        yaml.dump(skill, filepath.open("w"), default_flow_style=False, sort_keys=False)
+        print(f"  [Auto] ✓ Saved learned skill to {filepath}")
+    except Exception as e:
+        print(f"  [Auto] ⚠ Failed to save skill YAML: {e}")
+
+
+# ==========================================
+# 9b. Single-Package Installer
 # ==========================================
 def get_install_commands(skill: dict, os_flavor: str) -> list[str] | None:
     install = skill.get("install", {})
@@ -685,17 +747,36 @@ def run(context: dict | None = None) -> dict:
         if uid.strip() == "0":
             print("  [Info] Running as root. sudo calls will succeed without a password.")
 
+        # ── Pre-flight: sanitise broken apt sources ───────────────────────
+        apt_exit, apt_out = execute_ssh(client, "sudo apt-get update -qq 2>&1", sudo_password)
+        if apt_exit != 0 and "Conflicting values" in apt_out:
+            print("  [Fix] Detected conflicting apt source. Cleaning up...")
+            for cmd in [
+                "sudo rm -f /etc/apt/sources.list.d/ros2*.list",
+                "sudo rm -f /etc/apt/sources.list.d/ros2.list",
+                "sudo rm -f /etc/apt/sources.list.d/ros2-latest.list",
+            ]:
+                execute_ssh(client, cmd, sudo_password)
+            execute_ssh(client, "sudo apt-get update -qq 2>&1", sudo_password)
+
         retry_queue: list[dict] = []
         for inv_item in software_todo:
             pkg_name = inv_item["item"]
             skill    = skills.get(pkg_name)
 
             if not skill:
-                print(f"\n  [Skip] No skill file defined for '{pkg_name}'. Add skills/{pkg_name}.yaml.")
-                results[pkg_name] = "no_skill"
-                log_event(conn, session_id, "packages_agent", "result",
-                          pkg_name, 0, "No skill defined", None, "skipped")
-                continue
+                print(f"\n  [Auto] No skill file for '{pkg_name}'. Querying LLM for install instructions...")
+                skill = generate_skill_from_llm(pkg_name, os_flavor)
+                if skill:
+                    skills[pkg_name] = skill
+                    log_event(conn, session_id, "packages_agent", "auto_skill",
+                              pkg_name, 0, "LLM-generated skill", None, "info")
+                else:
+                    print(f"  [Auto] LLM could not generate skill for '{pkg_name}'. Skipping.")
+                    results[pkg_name] = "no_skill"
+                    log_event(conn, session_id, "packages_agent", "result",
+                              pkg_name, 0, "LLM skill generation failed", None, "skipped")
+                    continue
 
             result = install_package(
                 client, pkg_name, skill, os_flavor,
@@ -705,6 +786,11 @@ def run(context: dict | None = None) -> dict:
             
             if result in ("success", "already_installed"):
                 inv_item["status"] = "Met"
+                # Persist LLM-generated skills to disk so future runs skip the LLM
+                safe_name = pkg_name.replace("+", "plus").replace("/", "_")
+                yaml_path = SKILLS_DIR / f"{safe_name}.yaml"
+                if not yaml_path.exists() and skill:
+                    save_skill_yaml(pkg_name, skill)
             elif result == "failed":
                 retry_queue.append(inv_item)
 
