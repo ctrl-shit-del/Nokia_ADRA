@@ -59,6 +59,8 @@ Each object must have exactly these keys:
 - "critical": boolean (true if failure should abort the installation)
 - "verify": a bash command to verify success, or null
 
+CRITICAL RULE: Do NOT place `sudo` on the right side of a pipe (e.g. avoid `curl | sudo bash` or `echo | sudo tee`). Instead, wrap the entire command or the pipe sequence in a sudo bash session (e.g. `sudo bash -c 'curl | bash'`), or write to files safely without pipes.
+
 Output ONLY a raw JSON array. No markdown fences, no explanation.
 [
   {
@@ -247,7 +249,8 @@ RULES:
 1. Focus on the MOST RECENT error — not the original failure.
 2. Do NOT suggest a command already in the attempt history.
 3. Suggest ONE concrete shell command. If cleanup is needed before retry, include it with &&.
-4. Respond with ONLY raw JSON — no markdown, no preamble.
+4. AVOID putting 'sudo' on the right side of a pipe (e.g. 'curl | sudo bash' or 'echo | sudo tee'). Instead, use 'sudo bash -c "curl | bash"' or another pattern that does not pipe into sudo.
+5. Respond with ONLY raw JSON — no markdown, no preamble.
 
 JSON FORMAT:
 {{
