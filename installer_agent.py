@@ -267,7 +267,8 @@ RULES:
 2. Do NOT suggest a command already in the attempt history.
 3. Suggest ONE concrete shell command. If cleanup is needed before retry, include it with &&.
 4. AVOID putting 'sudo' on the right side of a pipe (e.g. 'curl | sudo bash' or 'echo | sudo tee'). Instead, use 'sudo bash -c "curl | bash"' or another pattern that does not pipe into sudo.
-5. Respond with ONLY raw JSON — no markdown, no preamble.
+5. If you see an apt 'Conflicting values set for option Signed-By' error, the root cause is duplicate .list files in /etc/apt/sources.list.d/ pointing to the same repo. Suggest a command to delete the older/duplicate .list file.
+6. Respond with ONLY raw JSON — no markdown, no preamble.
 
 JSON FORMAT:
 {{
