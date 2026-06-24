@@ -328,7 +328,7 @@ Build the inventory comparison table below.
 - For each item, extract the EXACT value from the collected data above. Do not invent values.
 - Compare the found value against the requirement.
 - status must be exactly one of: "Met", "Insufficient", or "Missing"
-  - "Met"           = found value satisfies the requirement
+  - "Met"           = found value satisfies the requirement (NOTE: NVMe drives are SSDs. If required is SSD and found contains 'nvme', mark as Met).
   - "Insufficient"  = found but below the required minimum
   - "Missing"       = no data was collected for this item
 

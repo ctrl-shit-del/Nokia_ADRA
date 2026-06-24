@@ -342,6 +342,8 @@ def run(context: dict | None = None) -> dict:
                 "available_profiles": list_requirement_profiles(),
                 "tokens_used": TOKENS.as_dict(),
             }
+        
+        profile["source"] = f"profile:{version}"
         write_json("requirements.json", profile)
         return {
             "status": "ok",

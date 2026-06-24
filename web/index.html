@@ -517,7 +517,7 @@
           const res = await fetch('/api/packages/run', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: { host, username, password } })
+            body: JSON.stringify({ context: { host, username, password, acknowledge_hardware: true } })
           });
           const result = await res.json();
           if (result.status === 'ok') {
