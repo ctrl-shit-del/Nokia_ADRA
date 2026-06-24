@@ -29,207 +29,61 @@ TOKENS      = TokenCounter()
 POST_INSTALL_SETTLE_TIME = 30
 
 # ==========================================
-# 2. Aurelis Installation Steps
+# 2. Autonomous Planner
 # ==========================================
-# Each step is a dict:
-#   name      — human-readable label (used in logs and report)
-#   command   — exact shell command to run on the target server
-#   sudo      — True if this command needs root
-#   critical  — True = abort entire installation if this step fails after all retries
-#               False = log failure and continue (for non-critical setup steps)
-#   verify    — optional command to confirm the step actually worked (runs only if command succeeds)
+def generate_dynamic_steps(system_name: str, os_flavor: str, source: str) -> list[dict]:
+    print(f"  [Planner] No cached installation steps found for '{system_name}'.")
+    print(f"  [Planner] Querying LLM to generate installation pipeline...")
+    
+    prompt = f"""You are an expert Linux sysadmin designing an installation pipeline.
+We need to install '{system_name}' on an '{os_flavor}' system.
 
-INSTALL_STEPS = [
-    # ── Pre-flight ─────────────────────────────────────────────────────
-    {
-        "name":     "Verify Docker is running",
-        "command":  "systemctl is-active docker",
-        "sudo":     False,
-        "critical": True,
-        "verify":   None,
-    },
-    {
-        "name":     "Verify kubectl is accessible",
-        "command":  "kubectl version --client 2>&1",
-        "sudo":     False,
-        "critical": True,
-        "verify":   None,
-    },
-    {
-        "name":     "Verify Helm is accessible",
-        "command":  "helm version --short 2>&1",
-        "sudo":     False,
-        "critical": True,
-        "verify":   None,
-    },
+"""
+    if source.startswith("upload:"):
+        parts = source.split(":")
+        if len(parts) >= 2:
+            filename = parts[1]
+            docs_path = Path("docs") / filename
+            if docs_path.exists():
+                try:
+                    manual_text = docs_path.read_text(encoding="utf-8")
+                    prompt += f"The user has provided the following installation manual/documentation:\\n---\\n{manual_text[:6000]}\\n---\\n\\n"
+                except Exception:
+                    pass
 
-    # ── Cluster setup ──────────────────────────────────────────────────
-    # kind creates a local single-node Kubernetes cluster for Aurelis.
-    # Skip this block if you're deploying to an existing cluster.
-    {
-        "name":     "Install kind (Kubernetes IN Docker)",
-        "command":  "curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind",
-        "sudo":     False,   # sudo is embedded in the command
-        "critical": True,
-        "verify":   "kind version",
-    },
-    {
-        "name":     "Create kind cluster for Aurelis",
-        "command":  "kind create cluster --name aurelis --wait 120s 2>&1 || echo 'Cluster may already exist'",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "kubectl cluster-info --context kind-aurelis 2>&1",
-    },
+    prompt += """Please provide the installation steps as a JSON list of objects.
+Each object must have exactly these keys:
+- "name": human-readable label
+- "command": the exact bash command to execute
+- "sudo": boolean (true if it needs root privileges)
+- "critical": boolean (true if failure should abort the installation)
+- "verify": a bash command to verify success, or null
 
-    # ── Namespace + RBAC ───────────────────────────────────────────────
-    {
-        "name":     "Create aurelis namespace",
-        "command":  "kubectl create namespace aurelis 2>&1 || echo 'Namespace already exists'",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "kubectl get namespace aurelis",
-    },
-
-    # ── Helm chart deployment ──────────────────────────────────────────
-    # Replace the repo URL and chart name with the actual Nokia Aurelis values.
-    # The placeholder below follows Nokia's documented pattern:
-    #   helm repo add nokia <NOKIA_CHART_REPO_URL>
-    #   helm install aurelis nokia/aurelis-command-center -n aurelis -f values.yaml
-    {
-        "name":     "Add Nokia Aurelis Helm repository",
-        "command":  "helm repo add nokia https://charts.nokia.com/aurelis && helm repo update",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "helm repo list | grep nokia",
-    },
-    {
-        "name":     "Deploy Aurelis Command Center via Helm",
-        "command":  "helm upgrade --install aurelis nokia/aurelis-command-center "
-                    "--namespace aurelis "
-                    "--create-namespace "
-                    "--wait "
-                    "--timeout 10m "
-                    "2>&1",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "helm status aurelis -n aurelis 2>&1 | grep STATUS",
-    },
-
-    # ── Post-deploy checks ─────────────────────────────────────────────
-    {
-        "name":     "Wait for Aurelis pods to be ready",
-        "command":  "kubectl wait --for=condition=ready pod "
-                    "--all -n aurelis "
-                    "--timeout=300s 2>&1",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "kubectl get pods -n aurelis",
-    },
-    {
-        "name":     "Check Aurelis service endpoints",
-        "command":  "kubectl get svc -n aurelis 2>&1",
-        "sudo":     False,
-        "critical": False,
-        "verify":   None,
-    },
+Output ONLY a raw JSON array. No markdown fences, no explanation.
+[
+  {
+    "name": "Update Apt",
+    "command": "apt-get update",
+    "sudo": true,
+    "critical": true,
+    "verify": null
+  }
 ]
-
-NS3_INSTALL_STEPS = [
-    {
-        "name":     "Clone NS-3 Development Repository",
-        "command":  "rm -rf /tmp/ns-3-dev && git clone https://gitlab.com/nsnam/ns-3-dev.git /tmp/ns-3-dev",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "ls -la /tmp/ns-3-dev/ns3",
-    },
-    {
-        "name":     "Configure NS-3",
-        "command":  "cd /tmp/ns-3-dev && ./ns3 configure --enable-examples --enable-tests",
-        "sudo":     False,
-        "critical": True,
-        "verify":   None,
-    },
-    {
-        "name":     "Build NS-3 Simulator",
-        "command":  "cd /tmp/ns-3-dev && ./ns3 build",
-        "sudo":     False,
-        "critical": True,
-        "verify":   "ls -la /tmp/ns-3-dev/build",
-    },
-    {
-        "name":     "Test NS-3 Core",
-        "command":  "cd /tmp/ns-3-dev && ./test.py --no-build --suite=core",
-        "sudo":     False,
-        "critical": False,
-        "verify":   None,
-    }
-]
-
-ROS2_INSTALL_STEPS = [
-    {
-        "name":     "Update Apt and Install Curl",
-        "command":  "sudo apt-get update -y && sudo apt-get install curl -y",
-        "sudo":     True,
-        "critical": True,
-        "verify":   "curl --version",
-    },
-    {
-        "name":     "Add ROS2 GPG Key",
-        "command":  "sudo curl -sSL https://raw.githubusercontent.com/ros/rosdistro/master/ros.key -o /usr/share/keyrings/ros-archive-keyring.gpg",
-        "sudo":     True,
-        "critical": True,
-        "verify":   "ls /usr/share/keyrings/ros-archive-keyring.gpg",
-    },
-    {
-        "name":     "Add ROS2 Repository",
-        "command":  "echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu $(grep UBUNTU_CODENAME /etc/os-release | cut -d= -f2) main\" | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null",
-        "sudo":     True,
-        "critical": True,
-        "verify":   "cat /etc/apt/sources.list.d/ros2.list",
-    },
-    {
-        "name":     "Install ROS2 Humble Base",
-        "command":  "sudo apt-get update -y && sudo apt-get install -y ros-humble-ros-base",
-        "sudo":     True,
-        "critical": True,
-        "verify":   "ls /opt/ros/humble",
-    }
-]
-
-# ==========================================
-# 3. Post-Installation Verification Suite
-# ==========================================
-# Run after all install steps succeed.
-# Each check has a name, command, and expected_exit_code.
-# All checks run regardless of individual failures — failures are collected and reported.
-
-VERIFY_SUITE = [
-    {
-        "name":    "All Aurelis pods running",
-        "command": "kubectl get pods -n aurelis --no-headers | awk '{print $3}' | grep -v Running | wc -l",
-        "expect":  "0",   # expect zero non-Running pods
-    },
-    {
-        "name":    "Helm release status is deployed",
-        "command": "helm status aurelis -n aurelis --output json 2>&1 | python3 -c \"import sys,json; d=json.load(sys.stdin); print(d['info']['status'])\"",
-        "expect":  "deployed",
-    },
-    {
-        "name":    "Aurelis namespace has running services",
-        "command": "kubectl get svc -n aurelis --no-headers | wc -l",
-        "expect":  None,   # just check exit code 0, any output is fine
-    },
-    {
-        "name":    "No crash-looping pods in last 60s",
-        "command": "kubectl get pods -n aurelis --no-headers | awk '{print $3}' | grep -c CrashLoopBackOff || true",
-        "expect":  "0",
-    },
-    {
-        "name":    "kubectl can reach the cluster API",
-        "command": "kubectl cluster-info 2>&1 | head -1",
-        "expect":  None,
-    },
-]
+"""
+    raw = call_llm(prompt)
+    if not raw:
+        return []
+    
+    try:
+        text = re.sub(r"```(?:json)?\s*", "", raw)
+        text = re.sub(r"```", "", text).strip()
+        match = re.search(r"\[.*\]", text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return json.loads(text)
+    except Exception as e:
+        print(f"  [Planner] Failed to parse generated steps: {e}")
+        return []
 
 
 # ==========================================
@@ -566,58 +420,6 @@ def execute_step(
 # ==========================================
 # 10. Post-Installation Verification Suite
 # ==========================================
-def run_verify_suite(
-    client: paramiko.SSHClient,
-    conn: sqlite3.Connection,
-    session_id: str,
-    sudo_password: str | None,
-) -> tuple[bool, list[dict]]:
-    """
-    Run all post-install checks. Returns (all_passed, results_list).
-    """
-    print(f"\n  Waiting {POST_INSTALL_SETTLE_TIME}s for services to stabilise...")
-    time.sleep(POST_INSTALL_SETTLE_TIME)
-
-    print(f"\n{'─'*54}")
-    print("  POST-INSTALLATION VERIFICATION")
-    print(f"{'─'*54}")
-
-    results = []
-    all_passed = True
-
-    for check in VERIFY_SUITE:
-        name    = check["name"]
-        cmd     = check["command"]
-        expect  = check.get("expect")
-
-        exit_code, output = execute_ssh(client, cmd, sudo_password=None)
-
-        passed = exit_code == 0
-        if expect is not None:
-            passed = passed and output.strip() == expect.strip()
-
-        status = "PASS" if passed else "FAIL"
-        icon   = "✓" if passed else "✗"
-
-        print(f"  {icon}  {name}")
-        if not passed:
-            print(f"       expected={expect!r}  got={output[:120]!r}")
-            all_passed = False
-
-        log_event(conn, session_id, "installer_agent", "verify",
-                  name, 0, output, exit_code, status.lower())
-
-        results.append({
-            "name":      name,
-            "command":   cmd,
-            "output":    output,
-            "exit_code": exit_code,
-            "expected":  expect,
-            "passed":    passed,
-        })
-
-    return all_passed, results
-
 
 # ==========================================
 # 11. Session Report
@@ -626,8 +428,7 @@ def generate_report(
     session_id: str,
     inventory: dict,
     os_flavor: str,
-    step_results: list[dict],   # [{"step": dict, "success": bool, "history": list}]
-    verify_results: list[dict],
+    step_results: list[dict],
     start_time: datetime.datetime,
 ) -> str:
     """Build a markdown session report and save it to REPORT_PATH."""
@@ -638,7 +439,7 @@ def generate_report(
     status_str = "✅ SUCCESS" if overall else "❌ FAILED"
 
     lines = [
-        f"# ADRA Session Report — Nokia Aurelis Installer",
+        f"# ADRA Session Report — {os_flavor.upper()} Installer",
         f"",
         f"| Field | Value |",
         f"|---|---|",
@@ -710,22 +511,6 @@ def generate_report(
             lines.append(f"")
 
     lines += [
-        f"---",
-        f"",
-        f"## Post-Installation Verification",
-        f"",
-        f"| Check | Result | Output |",
-        f"|---|---|---|",
-    ]
-
-    for vr in verify_results:
-        icon = "✓" if vr["passed"] else "✗"
-        lines.append(
-            f"| {vr['name']} | {icon} {'PASS' if vr['passed'] else 'FAIL'} | `{vr['output'][:80]}` |"
-        )
-
-    lines += [
-        f"",
         f"---",
         f"",
         f"## Audit Log",
@@ -855,27 +640,40 @@ def run(context: dict | None = None) -> dict:
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     step_results: list[dict] = []
-    verify_results: list[dict] = []
     installation_ok = False
+    active_steps = []
 
     try:
         reqs = json.loads(Path("requirements.json").read_text(encoding="utf-8"))
         source = reqs.get("source", "")
         if source is None:
             source = ""
-        source = source.lower()
-        if "ns-3" in source or "ns3" in source:
-            active_steps = NS3_INSTALL_STEPS
+            
+        system_name = "Target Software"
+        if "ns-3" in source.lower() or "ns3" in source.lower():
             system_name = "NS-3 Simulator"
-        elif "ros2" in source or "ros" in source:
-            active_steps = ROS2_INSTALL_STEPS
+        elif "ros2" in source.lower() or "ros" in source.lower():
             system_name = "ROS2 Humble"
+        elif source.startswith("upload:"):
+            system_name = source.split(":")[1]
+        elif source.startswith("profile:"):
+            system_name = source.split(":")[1]
+
+        cache_path = Path("installer_cache") / f"{system_name.replace(' ', '_').lower()}.json"
+        
+        if cache_path.exists():
+            print(f"  [Planner] Loaded cached installation steps for '{system_name}'.")
+            active_steps = json.loads(cache_path.read_text(encoding="utf-8"))
         else:
-            active_steps = INSTALL_STEPS
-            system_name = "ADRA Aurelis"
-    except Exception:
-        active_steps = INSTALL_STEPS
-        system_name = "ADRA Aurelis"
+            active_steps = generate_dynamic_steps(system_name, os_flavor, source)
+            
+        if not active_steps:
+            print("  [Error] No installation steps could be generated or loaded.")
+            return {"status": "error", "error": "no installation steps", "tokens_used": TOKENS.as_dict()}
+
+    except Exception as e:
+        print(f"  [Error] Failed to initialize active steps: {e}")
+        return {"status": "error", "error": str(e), "tokens_used": TOKENS.as_dict()}
 
     sep = "═" * 56
     print(sep)
@@ -905,6 +703,14 @@ def run(context: dict | None = None) -> dict:
                 sudo_password, idx + 1, len(active_steps), skills
             )
 
+            # Check if LLM fixed the step! If the last history attempt succeeded and its command differs
+            # from the original step command, we update the active_steps array with the perfected command!
+            if success and history and history[-1]["exit_code"] == 0:
+                fixed_cmd = history[-1]["command"]
+                if fixed_cmd != step["command"]:
+                    print(f"  [Planner] Perfecting step '{step['name']}' in cache array with learned fix.")
+                    active_steps[idx]["command"] = fixed_cmd
+
             step_results.append({"step": step, "success": success, "history": history,
                                   "skipped": False})
 
@@ -919,10 +725,12 @@ def run(context: dict | None = None) -> dict:
                 abort = True
 
         if not abort:
-            # ── Post-install verification ─────────────────────────────────
-            installation_ok, verify_results = run_verify_suite(
-                client, conn, session_id, sudo_password
-            )
+            installation_ok = True
+            try:
+                cache_path.write_text(json.dumps(active_steps, indent=4), encoding="utf-8")
+                print(f"  [Planner] Successfully saved perfected installation steps to {cache_path}")
+            except Exception as e:
+                print(f"  [Planner] Failed to save cache: {e}")
 
     except Exception as e:
         print(f"\nFatal SSH error: {e}")
@@ -938,7 +746,7 @@ def run(context: dict | None = None) -> dict:
     print("  Generating session report...")
     generate_report(
         session_id, inventory, os_flavor,
-        step_results, verify_results, start_time
+        step_results, start_time
     )
     print(f"  Report saved to: {REPORT_PATH}")
 
@@ -959,7 +767,7 @@ def run(context: dict | None = None) -> dict:
 
     print()
     if installation_ok:
-        print("  ✅ Aurelis installation complete.")
+        print(f"  ✅ {system_name} installation complete.")
         print(f"     Session report: {REPORT_PATH}")
         print(f"     Audit log:      {DB_PATH}")
     else:
@@ -967,11 +775,8 @@ def run(context: dict | None = None) -> dict:
             r["step"]["name"] for r in step_results
             if not r["success"] and not r.get("skipped")
         ]
-        failed_checks = [v["name"] for v in verify_results if not v["passed"]]
         if failed_steps:
             print(f"  ✗ Failed steps: {failed_steps}")
-        if failed_checks:
-            print(f"  ✗ Failed checks: {failed_checks}")
         print(f"\n  Full LLM retry history: {DB_PATH}")
         print(f"  Session report:         {REPORT_PATH}")
     print(sep)
