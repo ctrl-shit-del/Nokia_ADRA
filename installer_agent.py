@@ -860,11 +860,14 @@ def run(context: dict | None = None) -> dict:
 
     try:
         reqs = json.loads(Path("requirements.json").read_text(encoding="utf-8"))
-        source = reqs.get("source", "").lower()
-        if "ns-3" in source:
+        source = reqs.get("source", "")
+        if source is None:
+            source = ""
+        source = source.lower()
+        if "ns-3" in source or "ns3" in source:
             active_steps = NS3_INSTALL_STEPS
             system_name = "NS-3 Simulator"
-        elif "ros2" in source:
+        elif "ros2" in source or "ros" in source:
             active_steps = ROS2_INSTALL_STEPS
             system_name = "ROS2 Humble"
         else:
