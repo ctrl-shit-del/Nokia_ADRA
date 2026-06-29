@@ -9,6 +9,8 @@
   <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
   <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown-light.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -707,16 +709,38 @@
         fetchReport();
       }, []);
 
+      const downloadPdf = () => {
+        const element = document.getElementById('report-content');
+        if (!element) return;
+        const opt = {
+          margin:       10,
+          filename:     'ADRA_Fleet_Report.pdf',
+          image:        { type: 'jpeg', quality: 0.98 },
+          html2canvas:  { scale: 2 },
+          jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+        };
+        html2pdf().set(opt).from(element).save();
+      };
+
       return (
         <div className="bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
           <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
             <h3 className="font-semibold text-slate-800 text-sm">Deployment Report</h3>
-            <button onClick={fetchReport} className="text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded shadow-sm">
-              Refresh
-            </button>
+            <div className="flex gap-2">
+              <button onClick={downloadPdf} className="text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded shadow-sm">
+                Download PDF
+              </button>
+              <button onClick={fetchReport} className="text-sm font-medium text-slate-600 hover:text-slate-900 bg-white border border-slate-200 px-3 py-1 rounded shadow-sm">
+                Refresh
+              </button>
+            </div>
           </div>
-          <div className="overflow-auto flex-1 p-6 font-mono text-sm whitespace-pre-wrap bg-slate-50 text-slate-800">
-             {report || "No report available yet. Complete an installation first."}
+          <div className="overflow-auto flex-1 p-8 bg-white text-slate-800">
+             {report ? (
+                <div id="report-content" className="markdown-body" dangerouslySetInnerHTML={{ __html: marked.parse(report) }}></div>
+             ) : (
+                <p className="text-slate-500 italic">No report available yet. Complete an installation first.</p>
+             )}
           </div>
         </div>
       );

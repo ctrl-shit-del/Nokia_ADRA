@@ -383,7 +383,8 @@ ATTEMPT HISTORY (most recent is the current failure):
 RULES:
 1. Focus on the MOST RECENT error — not the original one.
 2. Do NOT suggest a command already in the attempt history above.
-3. Respond with ONLY a raw JSON object — no markdown fences, no preamble.
+3. If your fix is a prerequisite (like killing a process to release a lock, or fixing a GPG key), you MUST combine it with the ORIGINAL failed command using `&&` (e.g. `sudo fuser -k /var/lib/dpkg/lock-frontend && sudo apt-get install -y <package>`). Your suggested command completely replaces the failed attempt, so it must accomplish the original step's goal!
+4. Respond with ONLY a raw JSON object — no markdown fences, no preamble.
 
 JSON FORMAT:
 {{
