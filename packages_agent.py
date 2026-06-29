@@ -421,6 +421,7 @@ CRITICAL RULES:
 - All commands that write to system paths MUST start with 'sudo'.
 - Do NOT pipe into sudo (e.g. avoid 'curl | sudo bash'). Use 'sudo bash -c' instead.
 - Include both 'ubuntu' and 'rhel' install paths if possible.
+- The user might request a generic name (e.g. 'clang++'). You MUST translate this to the correct ACTUAL package manager name (e.g. 'clang' or 'g++' on Ubuntu). Do not naively use the generic name in apt-get.
 
 Output ONLY a raw JSON object — no markdown, no explanation.
 {{
@@ -763,8 +764,9 @@ def run(context: dict | None = None) -> dict:
         retry_queue: list[dict] = []
         for inv_item in software_todo:
             pkg_name = inv_item["item"]
-            skill    = skills.get(pkg_name)
-
+            safe_name = pkg_name.replace("+", "plus").replace("/", "_")
+            skill    = skills.get(safe_name)
+            
             if not skill:
                 print(f"\n  [Auto] No skill file for '{pkg_name}'. Querying LLM for install instructions...")
                 skill = generate_skill_from_llm(pkg_name, os_flavor)
@@ -799,7 +801,8 @@ def run(context: dict | None = None) -> dict:
             print(f"\nRetrying Pass-1 failures: {[i['item'] for i in retry_queue]}")
         for inv_item in retry_queue:
             pkg_name = inv_item["item"]
-            skill = skills.get(pkg_name)
+            safe_name = pkg_name.replace("+", "plus").replace("/", "_")
+            skill    = skills.get(safe_name)
             if not skill:
                 continue
             result = install_package(
