@@ -346,28 +346,6 @@ def execute_step(
                       name, 0, v_out, v_exit, "success" if v_exit == 0 else "warn")
         return True, attempt_history
 
-    skills = skills or {}
-    for pkg_name, skill in skills.items():
-        learned_cmd = find_learned_fix(skill, os_flavor, output)
-        if not learned_cmd:
-            continue
-        print(f"  [Learned Fix:{pkg_name}] Applying persisted fix: {learned_cmd}")
-        lf_exit, lf_output = execute_ssh(client, learned_cmd, sudo_password)
-        log_event(conn, session_id, "installer_agent", "learned_fix",
-                  name, 2, learned_cmd, lf_exit,
-                  "success" if lf_exit == 0 else "fail")
-        attempt_history.append({
-            "attempt": 2,
-            "command": learned_cmd,
-            "exit_code": lf_exit,
-            "output": lf_output,
-            "llm_diagnosis": f"matched learned_fixes entry from {pkg_name}.yaml",
-            "llm_suggested": learned_cmd,
-        })
-        if lf_exit == 0:
-            return True, attempt_history
-        break
-
     # ── Step failed — LLM retry loop ─────────────────────────────────────
     if not use_llm:
         print(f"\n  ⚠  Step failed. LLM is disabled, aborting retry loop.")
