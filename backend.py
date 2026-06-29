@@ -12,7 +12,8 @@ import installer_agent
 import inventory_agent
 import packages_agent
 import requirements_agent
-from adra_common import list_requirement_profiles, set_token_listener
+from adra_common import list_requirement_profiles, set_token_listener, LLAMACPP_URL
+import requests
 
 import sys
 import paramiko
@@ -66,6 +67,21 @@ def result_with_tokens(result: dict[str, Any]) -> dict[str, Any]:
 @app.get("/api/profiles")
 def profiles() -> dict[str, list[str]]:
     return {"profiles": list_requirement_profiles()}
+
+
+@app.get("/api/models")
+def get_models() -> dict[str, list[str]]:
+    base_url = LLAMACPP_URL.split("/chat/completions")[0]
+    models_url = f"{base_url}/models"
+    try:
+        resp = requests.get(models_url, timeout=2)
+        resp.raise_for_status()
+        data = resp.json()
+        models = data.get("data", [])
+        return {"models": [m["id"] for m in models]}
+    except Exception as e:
+        print(f"Failed to fetch models: {e}")
+        return {"models": ["mock-model"]}
 
 
 @app.post("/api/requirements/run")

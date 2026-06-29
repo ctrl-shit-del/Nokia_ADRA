@@ -301,6 +301,7 @@ def execute_step(
     step_num: int,
     total_steps: int,
     skills: dict[str, dict] | None = None,
+    use_llm: bool = True,
 ) -> tuple[bool, list[dict]]:
     """
     Run one installation step with LLM-guided retry on failure.
@@ -366,6 +367,12 @@ def execute_step(
         break
 
     # ── Step failed — LLM retry loop ─────────────────────────────────────
+    if not use_llm:
+        print(f"\n  ⚠  Step failed. LLM is disabled, aborting retry loop.")
+        log_event(conn, session_id, "installer_agent", "step_result",
+                  name, 2, "LLM disabled, aborting retry", -1, "exhausted")
+        return False, attempt_history
+
     print(f"\n  ⚠  Step failed. Entering LLM retry loop (max {MAX_RETRIES} attempts)...")
 
     for attempt_num in range(2, MAX_RETRIES + 1):
@@ -590,6 +597,7 @@ def check_inventory_gates(inventory: dict) -> tuple[list[str], list[str]]:
 # ==========================================
 def run(context: dict | None = None) -> dict:
     context = context or {}
+    use_llm = context.get("use_llm", True)
     set_model_override(context.get("model"))
     TOKENS.prompt = 0
     TOKENS.completion = 0
@@ -685,8 +693,11 @@ def run(context: dict | None = None) -> dict:
         if cache_path.exists():
             print(f"  [Planner] Loaded cached installation steps for '{system_name}'.")
             active_steps = json.loads(cache_path.read_text(encoding="utf-8"))
-        else:
+        elif use_llm:
             active_steps = generate_dynamic_steps(system_name, os_flavor, source)
+        else:
+            print(f"  [Error] No cached installation steps found for '{system_name}' and LLM is disabled.")
+            return {"status": "error", "error": "No cached installation steps found for the target system and LLM generation is disabled.", "tokens_used": TOKENS.as_dict()}
             
         if not active_steps:
             print("  [Error] No installation steps could be generated or loaded.")
@@ -749,7 +760,7 @@ def run(context: dict | None = None) -> dict:
 
             success, history = execute_step(
                 client, step, os_flavor, conn, session_id,
-                sudo_password, idx + 1, len(active_steps), skills
+                sudo_password, idx + 1, len(active_steps), skills, use_llm
             )
 
             # Check if LLM fixed the step! If the last history attempt succeeded and its command differs

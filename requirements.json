@@ -1,17 +1,13 @@
 {
     "hardware": {
-        "cpu_cores": 1,
-        "ram_gb": 2,
-        "disk_gb": 25,
+        "cpu_cores": 2,
+        "ram_gb": 4,
+        "disk_gb": 10,
         "disk_type": "SSD"
     },
     "software": {
-        "os_name": "Ubuntu 22.04 LTS",
-        "python": "3.9",
-        "compiler": "g++ 9",
-        "build_system": "cmake and ninja-build",
-        "version_control": "git"
+        "os_name": "Ubuntu 22.04",
+        "curl": "latest"
     },
-    "malicious_flags": [],
-    "source": "upload:ns3_installation_manual.html:fc341425"
+    "source": "profile:ROS2 Humble (Testing)"
 }

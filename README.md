@@ -35,10 +35,10 @@ Ensure you have an OpenAI-compatible endpoint running. You can launch `llama-ser
 **Option A: Running Locally**
 ```bash
 llama-server \
-  -m /path/to/models/qwen2.5-7b-instruct-q5_k_m.gguf \
-  -t 16 \
-  -c 8192 \
-  --port 8080
+    -m /home/mystic/models/qwen25/qwen2.5-7b-instruct-q5_k_m-00001-of-00002.gguf \
+    -t 16 \
+    -c 8192 \
+    --port 8080
 ```
 
 **Option B: Running on a Remote PC (with a Better GPU)**
