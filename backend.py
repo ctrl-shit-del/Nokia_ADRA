@@ -14,7 +14,6 @@ import packages_agent
 import requirements_agent
 from adra_common import list_requirement_profiles, set_token_listener, LLAMACPP_URL
 import requests
-import subprocess
 
 import sys
 import paramiko
@@ -71,42 +70,18 @@ def profiles() -> dict[str, list[str]]:
 
 
 @app.get("/api/models")
-def get_models(host: str = "localhost", port: str = "8080") -> dict[str, list[str]]:
-    # Use the provided host/port or fallback to adra_common's env var
-    # If the user is using Ollama, port is typically 11434.
-    base_url = f"http://{host}:{port}/v1"
-    if port == "8080":
-        base_url = LLAMACPP_URL.split("/chat/completions")[0]
-        
+def get_models() -> dict[str, list[str]]:
+    base_url = LLAMACPP_URL.split("/chat/completions")[0]
     models_url = f"{base_url}/models"
     try:
-        resp = requests.get(models_url, timeout=1)
+        resp = requests.get(models_url, timeout=2)
         resp.raise_for_status()
         data = resp.json()
         models = data.get("data", [])
         return {"models": [m["id"] for m in models]}
-    except requests.exceptions.ConnectionError:
-        # Suppress long tracebacks when LLM is simply offline
-        return {"models": []}
     except Exception as e:
         print(f"Failed to fetch models: {e}")
-        return {"models": []}
-
-@app.post("/api/llm/start")
-def start_llm(payload: AgentContext) -> dict[str, Any]:
-    try:
-        import shlex
-        command_str = payload.context.get("command")
-        if not command_str:
-            return {"status": "error", "error": "No command provided"}
-        
-        cmd = shlex.split(command_str)
-        subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return {"status": "ok", "message": "LLM server started in the background."}
-    except FileNotFoundError:
-        return {"status": "error", "error": "Command not found on the system."}
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
+        return {"models": ["mock-model"]}
 
 
 @app.post("/api/requirements/run")
