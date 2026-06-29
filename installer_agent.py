@@ -34,22 +34,39 @@ POST_INSTALL_SETTLE_TIME = 30
 def generate_dynamic_steps(system_name: str, os_flavor: str, source: str) -> list[dict]:
     print(f"  [Planner] No cached installation steps found for '{system_name}'.")
     print(f"  [Planner] Querying LLM to generate installation pipeline...")
-    
-    prompt = f"""You are an expert Linux sysadmin designing an installation pipeline.
-We need to install '{system_name}' on an '{os_flavor}' system.
+    if system_name.lower().endswith(".pdf") or system_name.lower().endswith(".txt"):
+        software_target = "the software described in the provided documentation"
+    else:
+        software_target = f"the following software: '{system_name}'"
+
+    prompt = f"""You are an expert Linux sysadmin. Generate a list of bash steps to deploy {software_target} on an '{os_flavor}' machine.
+
+CRITICAL INSTRUCTIONS:
+- Break the installation into logical steps (e.g. "Update Apt", "Install Dependencies", "Configure", "Start Service").
+- Suggest only SAFE, non-destructive commands.
+- Assume the user has passwordless sudo or the script handles sudo injection.
+- Do NOT use interactive commands. Append `-y` to apt-get/yum.
+- Ensure all required packages are present.
 
 """
     if source.startswith("upload:"):
         parts = source.split(":")
-        if len(parts) >= 2:
-            filename = parts[1]
-            docs_path = Path("docs") / filename
-            if docs_path.exists():
-                try:
-                    manual_text = docs_path.read_text(encoding="utf-8")
-                    prompt += f"The user has provided the following installation manual/documentation:\\n---\\n{manual_text[:6000]}\\n---\\n\\n"
-                except Exception:
-                    pass
+        filename = parts[1] if len(parts) >= 2 else ""
+        doc_sha = parts[2] if len(parts) >= 3 else None
+        
+        try:
+            from requirements_agent import retrieve_context
+            queries = [
+                "installation steps bash commands apt-get install",
+                "build instructions compile from source make cmake",
+                "deployment configure install start service",
+            ]
+            where_filter = {"sha256": doc_sha} if doc_sha else {"source": filename} if filename else None
+            context = retrieve_context(queries, n_results=5, where_filter=where_filter)
+            if context and context.strip():
+                prompt += f"The user has provided the following installation manual/documentation:\n---\n{context[:12000]}\n---\n\n"
+        except Exception as e:
+            print(f"  [Planner] Failed to retrieve context from vector DB: {e}")
 
     prompt += """Please provide the installation steps as a JSON list of objects.
 Each object must have exactly these keys:
