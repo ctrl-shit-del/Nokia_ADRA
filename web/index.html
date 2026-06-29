@@ -7,7 +7,8 @@
   <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
   <script src="https://unpkg.com/@babel/standalone@7.23.6/babel.min.js"></script>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <script>
     tailwind.config = {
       theme: {
@@ -721,62 +722,6 @@
       );
     }
 
-    const TerminalTab = ({ logs, config }) => {
-      const [cmd, setCmd] = useState('');
-      const { host, user, pass } = config;
-
-      const [loading, setLoading] = useState(false);
-      const endRef = useRef(null);
-
-      useEffect(() => {
-        endRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, [logs]);
-
-      const runCommand = async (e) => {
-        e.preventDefault();
-        if (!cmd.trim()) return;
-        setLoading(true);
-        try {
-          await fetch('/api/terminal/run', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ context: { host, username: user, password: pass, command: cmd } })
-          });
-          setCmd('');
-        } catch(err) {
-          console.error(err);
-        } finally {
-          setLoading(false);
-        }
-      };
-
-      return (
-        <div className="bg-[#0a0a0a] border border-slate-700 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-slate-700 bg-slate-800 flex justify-between items-center shrink-0">
-             <div className="flex gap-4 items-center">
-                <span className="text-sm font-mono text-slate-300">{user}@{host}</span>
-             </div>
-             <span className="text-xs text-slate-400 font-mono">ADRA SSH Terminal</span>
-          </div>
-          <div className="overflow-auto flex-1 p-4 font-mono text-[13px] whitespace-pre-wrap text-teal-400 break-words leading-relaxed">
-             {logs}
-             <div ref={endRef} />
-          </div>
-          <div className="p-3 bg-slate-800 border-t border-slate-700 flex">
-             <span className="text-teal-400 font-mono mr-2 pt-1.5">$</span>
-             <form onSubmit={runCommand} className="flex-1 flex gap-2">
-               <input 
-                 className="flex-1 bg-transparent border-none text-white font-mono text-sm focus:outline-none focus:ring-0" 
-                 value={cmd} 
-                 onChange={e=>setCmd(e.target.value)} 
-                 placeholder="Enter shell command..." 
-               />
-               <button type="submit" disabled={loading} className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 rounded text-xs font-medium uppercase tracking-wider">Run</button>
-             </form>
-          </div>
-        </div>
-      );
-    }
 
     // --- Main App ---
     
@@ -855,6 +800,21 @@
         };
       }, []);
 
+
+      const checkLlmHealth = async () => {
+        try {
+          const res = await fetch('/api/health');
+          const data = await res.json();
+          if (data.status === 'ok') {
+            alert('✅ Success: ' + data.message);
+          } else {
+            alert('❌ Error: ' + data.message);
+          }
+        } catch (e) {
+          alert('Failed to connect to backend for health check.');
+        }
+      };
+
       useEffect(() => {
         window.updateTokens = (usage) => {
           setTokens({
@@ -886,8 +846,7 @@
         { id: 'inventory', label: 'Inventory' },
         { id: 'packages', label: 'Packages' },
         { id: 'installer', label: 'Installer' },
-        { id: 'report', label: 'Fleet Report' },
-        { id: 'terminal', label: 'Terminal' }
+        { id: 'report', label: 'Fleet Report' }
       ];
 
       return (
@@ -931,7 +890,7 @@
                     <label className="block text-xs font-medium text-slate-500 mb-1">LLM Port</label>
                     <input type="text" value={config.llmPort} onChange={e => updateConfig('llmPort', e.target.value)} className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:border-teal-500 focus:outline-none" />
                   </div>
-                  <button className="w-full bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 py-1.5 rounded text-xs font-medium transition-colors">Check LLM Health</button>
+                  <button onClick={checkLlmHealth} className="w-full bg-slate-100 hover:bg-slate-200 border border-slate-300 text-slate-700 py-1.5 rounded text-xs font-medium transition-colors">Check LLM Health</button>
                 </div>
               </div>
 
@@ -986,8 +945,7 @@
               {activeTab === 'packages' && <PackagesTab config={config} />}
               {activeTab === 'installer' && <InstallerTab config={config} />}
               {activeTab === 'report' && <ReportTab config={config} />}
-              {activeTab === 'terminal' && <TerminalTab logs={logs} config={config} />}
-            </div>
+              </div>
           </main>
 
 

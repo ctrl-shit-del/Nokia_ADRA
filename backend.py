@@ -69,6 +69,25 @@ def profiles() -> dict[str, list[str]]:
     return {"profiles": list_requirement_profiles()}
 
 
+@app.get("/api/health")
+def llm_health() -> dict[str, Any]:
+    base_url = LLAMACPP_URL.split("/chat/completions")[0]
+    health_url = f"{base_url}/health"
+    try:
+        resp = requests.get(health_url, timeout=2)
+        resp.raise_for_status()
+        return {"status": "ok", "message": "LLM backend is healthy and responding."}
+    except Exception as e:
+        # Fallback to checking models if /health doesn't exist
+        models_url = f"{base_url}/models"
+        try:
+            resp = requests.get(models_url, timeout=2)
+            resp.raise_for_status()
+            return {"status": "ok", "message": "LLM backend is accessible (models endpoint OK)."}
+        except Exception as e2:
+            return {"status": "error", "message": str(e2)}
+
+
 @app.get("/api/models")
 def get_models() -> dict[str, list[str]]:
     base_url = LLAMACPP_URL.split("/chat/completions")[0]
