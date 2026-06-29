@@ -594,7 +594,7 @@
         setLoading(true);
         setErrorMsg(null);
         try {
-          const { host, user: username, pass: password, model } = config;
+          const { host, user: username, pass: password, useLlm: use_llm, model } = config;
 
           const res = await fetch('/api/installer/run', {
             method: 'POST',
