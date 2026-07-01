@@ -124,6 +124,8 @@ def get_models() -> dict[str, Any]:
         
     registry = list_model_endpoints()
     endpoints_detail = []
+    active_is_reachable = False
+    
     for name, base_url in registry["endpoints"].items():
         entry = {"name": name, "base_url": base_url, "reachable": False, "model_id": None}
         try:
@@ -132,9 +134,19 @@ def get_models() -> dict[str, Any]:
             data = resp.json().get("data", [])
             entry["reachable"] = True
             entry["model_id"] = data[0]["id"] if data else "unknown"
+            if name == registry["active"]:
+                active_is_reachable = True
         except Exception as e:
             entry["error"] = str(e)
         endpoints_detail.append(entry)
+
+    # Auto-select the first reachable endpoint if the active one is dead
+    if not active_is_reachable:
+        for entry in endpoints_detail:
+            if entry["reachable"]:
+                select_model_endpoint(entry["name"])
+                registry["active"] = entry["name"]
+                break
 
     return {"endpoints": endpoints_detail, "active": registry["active"]}
 

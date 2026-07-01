@@ -350,31 +350,45 @@ async def get_build_logs() -> StreamingResponse:
 @app.get("/api/models/installed")
 def list_installed_models() -> list[dict[str, Any]]:
     models = []
-    for root, dirs, files in os.walk(MODELS_DIR, followlinks=True):
-        for file in files:
-            if not file.lower().endswith(".gguf"):
-                continue
+    
+    # Scan both the user's explicit models dir and the HF cache dir
+    hf_cache_dir = Path(os.path.expanduser("~/.cache/huggingface/hub"))
+    scan_dirs = [MODELS_DIR]
+    if hf_cache_dir.is_dir() and hf_cache_dir != MODELS_DIR:
+        scan_dirs.append(hf_cache_dir)
+        
+    for base_dir in scan_dirs:
+        for root, dirs, files in os.walk(base_dir, followlinks=True):
+            for file in files:
+                if not file.lower().endswith(".gguf"):
+                    continue
+                    
+                p = Path(root) / file
+                if not p.is_file():
+                    continue
                 
-            p = Path(root) / file
-            if not p.is_file():
-                continue
-            
-            stat = p.stat()
-            # Parse quantization info from filename
-            quant = "unknown"
-            # Match typical gguf names containing Q4_K_M, Q8_0, F16, etc.
-            match = re.search(r"([qQ]\d_[kK]_\w+|[qQ]\d_\d|[fF]\d+)", p.name)
-            if match:
-                quant = match.group(1).upper()
-                
-            models.append({
-                "filename": str(p.relative_to(MODELS_DIR)),
-                "path": str(p),
-                "size_bytes": stat.st_size,
-                "size_gb": round(stat.st_size / (1024 * 1024 * 1024), 2),
-                "quantization": quant,
-                "modified_time": stat.st_mtime
-            })
+                stat = p.stat()
+                # Parse quantization info from filename
+                quant = "unknown"
+                # Match typical gguf names containing Q4_K_M, Q8_0, F16, etc.
+                match = re.search(r"([qQ]\d_[kK]_\w+|[qQ]\d_\d|[fF]\d+)", p.name)
+                if match:
+                    quant = match.group(1).upper()
+                    
+                try:
+                    filename = str(p.relative_to(MODELS_DIR))
+                except ValueError:
+                    # If found in HF cache (outside MODELS_DIR)
+                    filename = str(p)
+                    
+                models.append({
+                    "filename": filename,
+                    "path": str(p),
+                    "size_bytes": stat.st_size,
+                    "size_gb": round(stat.st_size / (1024 * 1024 * 1024), 2),
+                    "quantization": quant,
+                    "modified_time": stat.st_mtime
+                })
     return sorted(models, key=lambda x: x["modified_time"], reverse=True)
 
 @app.get("/api/models/search")
