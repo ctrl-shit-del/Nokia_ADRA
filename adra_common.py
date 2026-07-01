@@ -149,7 +149,7 @@ def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 900
             tokens.add(usage)
             
         lower_prompt = prompt.lower()
-        if "extract" in lower_prompt and "hardware" in lower_prompt and "software" in lower_prompt:
+        if "extract" in lower_prompt and "hardware" in lower_prompt and "software" in lower_prompt and "comparing" not in lower_prompt:
             if "ns-3" in lower_prompt or "ns3" in lower_prompt or "25 gb ssd" in lower_prompt:
                 return json.dumps({
                     "hardware": {"cpu_cores": "1", "ram_gb": "2", "disk_gb": "25", "disk_type": "SSD"},
