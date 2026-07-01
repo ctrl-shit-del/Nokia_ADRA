@@ -105,6 +105,7 @@ CRITICAL RULE 1: Do NOT place `sudo` on the right side of a pipe (e.g. avoid `cu
 CRITICAL RULE 2: If you need to set environment variables or source a script (e.g. `source /opt/ros/humble/setup.bash`), you MUST append it to ~/.bashrc using `echo \"source ...\" >> ~/.bashrc` instead of just running it. The command will only persist if you write it to ~/.bashrc.
 CRITICAL RULE 3: Each step runs in a NEW stateless SSH session. Any `cd` or `export` commands will NOT persist to the next step. If a command needs to run inside a specific directory (like a cloned repository), you MUST include the `cd` within the SAME command (e.g., `cd ns-3-dev && ./ns3 configure`).
 CRITICAL RULE 4: NEVER generate a step to run `apt-get upgrade` or `yum upgrade`. Only use `update` and explicitly `install` the required packages. DEBIAN_FRONTEND=noninteractive must be set for apt-get.
+CRITICAL RULE 5: If the software is built from source (using make, cmake, ./ns3, etc.), you MUST include the actual build/compile step (e.g. `make`, `./ns3 build`) AND the install step if applicable. Do not stop at the configuration step!
 
 Output ONLY a raw JSON array. No markdown fences, no explanation.
 [
