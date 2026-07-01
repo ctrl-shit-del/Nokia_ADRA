@@ -4,7 +4,7 @@
             "item": "cpu_cores",
             "required": 1,
             "found": 16,
-            "status": "Insufficient"
+            "status": "Met"
         },
         {
             "item": "ram_gb",
@@ -16,7 +16,7 @@
             "item": "disk_gb",
             "required": 25,
             "found": 96,
-            "status": "Insufficient"
+            "status": "Met"
         },
         {
             "item": "disk_type",

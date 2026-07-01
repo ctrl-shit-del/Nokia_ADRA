@@ -100,10 +100,15 @@ def discover_model() -> str:
         
         selected_model = detected_model
         if _MODEL_OVERRIDE:
-            if _MODEL_OVERRIDE not in available_model_ids:
+            matched = False
+            for m_id in available_model_ids:
+                if _MODEL_OVERRIDE.lower() in m_id.lower() or m_id.lower() in _MODEL_OVERRIDE.lower():
+                    selected_model = m_id
+                    matched = True
+                    break
+            if not matched:
                 print(f"Validation Error: Model '{_MODEL_OVERRIDE}' not found in server. Falling back to mock-model.")
                 return "mock-model"
-            selected_model = _MODEL_OVERRIDE
             
         print(f"Server URL: {base_url}")
         print(f"Detected model: {detected_model}")

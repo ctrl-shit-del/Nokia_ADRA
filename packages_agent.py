@@ -473,7 +473,10 @@ Output ONLY a raw JSON object — no markdown, no explanation.
         return None
 
     try:
-        return extract_json(raw)
+        data = extract_json(raw)
+        if "description" not in data:
+            raise ValueError("Missing 'description' key in LLM response")
+        return data
     except (ValueError, json.JSONDecodeError) as e:
         print(f"  [Auto] Failed to parse LLM skill response: {e}")
         # Fallback to a simple generic skill

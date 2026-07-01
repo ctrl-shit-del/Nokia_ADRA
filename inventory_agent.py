@@ -350,6 +350,26 @@ Respond with ONLY a raw JSON object — no markdown fences, no explanation:
     if raw_result:
         try:
             inv_json = extract_json(raw_result)
+            
+            # Re-evaluate numerical statuses to prevent LLM math errors
+            for section in ["hardware", "software"]:
+                for item in inv_json.get(section, []):
+                    req = item.get("required")
+                    found = item.get("found")
+                    if found is None or found == "null" or found == "None":
+                        item["status"] = "Missing"
+                    elif req not in (None, "N/A"):
+                        try:
+                            # Use simple float comparison for numerical values
+                            req_val = float(str(req).replace("GB", "").strip())
+                            found_val = float(str(found).replace("GB", "").strip())
+                            if found_val >= req_val:
+                                item["status"] = "Met"
+                            else:
+                                item["status"] = "Insufficient"
+                        except (ValueError, TypeError):
+                            pass
+
             inv_json["malicious_flags"] = reqs.get("malicious_flags", [])
             inv_json["source"] = reqs.get("source")
             write_json(f"inventory_{host}.json", inv_json)
