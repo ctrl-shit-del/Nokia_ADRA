@@ -393,12 +393,19 @@ def list_installed_models() -> list[dict[str, Any]]:
 
 @app.get("/api/models/search")
 def search_hf_repo(repo: str) -> list[dict[str, Any]]:
+    repo = repo.strip()
+    if not repo or "/" not in repo:
+        raise HTTPException(status_code=400, detail="Invalid repository name. Format should be 'author/repo_name' (e.g. 'Qwen/Qwen2.5-7B-Instruct-GGUF').")
+        
     # Call HF API to get files inside repo
     url = f"https://huggingface.co/api/models/{repo}"
     try:
         r = requests.get(url, timeout=10)
         if r.status_code == 404:
-            raise HTTPException(status_code=404, detail="HuggingFace repository not found.")
+            raise HTTPException(status_code=404, detail=f"HuggingFace repository '{repo}' not found.")
+        elif r.status_code == 401:
+            raise HTTPException(status_code=401, detail=f"Repository '{repo}' is private, requires authentication, or does not exist.")
+            
         r.raise_for_status()
         data = r.json()
         

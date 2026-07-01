@@ -631,7 +631,7 @@ def run(context: dict | None = None) -> dict:
             inventory = json.load(f)
     except FileNotFoundError:
         print("Error: inventory.json not found. Run inventory_agent.py first.")
-        return {"status": "error", "error": "inventory.json not found", "tokens_used": TOKENS.as_dict()}
+        return {"status": "error", "error": "inventory.json not found", "steps": [], "tokens_used": TOKENS.as_dict()}
 
     # Detect OS
     os_flavor = "ubuntu"
@@ -661,7 +661,7 @@ def run(context: dict | None = None) -> dict:
         if sw_issues:
             print("\n  🚫  INSTALLATION BLOCKED: Software dependencies not met.")
             print("  Resolve the software issues above and re-run packages_agent.py")
-            return {"status": "error", "error": "software dependencies not met", "tokens_used": TOKENS.as_dict()}
+            return {"status": "error", "error": "software dependencies not met", "steps": [], "tokens_used": TOKENS.as_dict()}
             
         # Only hardware issues
         answer = context.get("acknowledge_hardware")
@@ -669,7 +669,7 @@ def run(context: dict | None = None) -> dict:
             answer = input("\n  Continue with installation despite hardware issues? (y/N): ").strip().lower() == "y"
         if not answer:
             print("Aborting.")
-            return {"status": "error", "error": "hardware requirements not acknowledged", "tokens_used": TOKENS.as_dict()}
+            return {"status": "error", "error": "hardware requirements not acknowledged", "steps": [], "tokens_used": TOKENS.as_dict()}
 
     print("\n✓ Pre-flight checks passed. Starting installation.\n")
 
@@ -719,15 +719,15 @@ def run(context: dict | None = None) -> dict:
             active_steps = generate_dynamic_steps(system_name, os_flavor, source)
         else:
             print(f"  [Error] No cached installation steps found for '{system_name}' and LLM is disabled.")
-            return {"status": "error", "error": "No cached installation steps found for the target system and LLM generation is disabled.", "tokens_used": TOKENS.as_dict()}
+            return {"status": "error", "error": "No cached installation steps found for the target system and LLM generation is disabled.", "steps": [], "tokens_used": TOKENS.as_dict()}
             
         if not active_steps:
             print("  [Error] No installation steps could be generated or loaded.")
-            return {"status": "error", "error": "no installation steps", "tokens_used": TOKENS.as_dict()}
+            return {"status": "error", "error": "no installation steps", "steps": [], "tokens_used": TOKENS.as_dict()}
 
     except Exception as e:
         print(f"  [Error] Failed to initialize active steps: {e}")
-        return {"status": "error", "error": str(e), "tokens_used": TOKENS.as_dict()}
+        return {"status": "error", "error": str(e), "steps": [], "tokens_used": TOKENS.as_dict()}
 
     sep = "═" * 56
     print(sep)
@@ -863,14 +863,25 @@ def run(context: dict | None = None) -> dict:
         print(f"  Session report:         {REPORT_PATH}")
     print(sep)
 
+    steps_arr = []
+    for r in step_results:
+        steps_arr.append({
+            "name": r["step"]["name"],
+            "status": "success" if r["success"] else "skipped" if r.get("skipped") else "failed",
+            "attempts": [
+                {
+                    "command": att.get("command", ""),
+                    "output": att.get("output", ""),
+                    "diagnosis": att.get("llm_diagnosis", "")
+                } for att in r.get("history", [])
+            ]
+        })
+
     return {
         "status": "ok" if installation_ok else "error",
         "result_path": REPORT_PATH,
+        "steps": steps_arr,
         "summary": {
-            "steps": {
-                r["step"]["name"]: "success" if r["success"] else "skipped" if r.get("skipped") else "failed"
-                for r in step_results
-            },
             "verification_passed": installation_ok,
         },
         "tokens_used": TOKENS.as_dict(),

@@ -184,8 +184,8 @@ def select_model(payload: ModelSelectRequest) -> dict[str, Any]:
 
 
 @app.post("/api/requirements/run")
-def run_requirements(payload: AgentContext) -> dict[str, Any]:
-    return result_with_tokens(requirements_agent.run(payload.context))
+async def run_requirements(payload: AgentContext) -> dict[str, Any]:
+    return result_with_tokens(await asyncio.to_thread(requirements_agent.run, payload.context))
 
 
 @app.post("/api/requirements/upload")
@@ -205,7 +205,7 @@ async def upload_requirements(
         "version": version,
     }
     try:
-        return result_with_tokens(requirements_agent.run(context))
+        return result_with_tokens(await asyncio.to_thread(requirements_agent.run, context))
     finally:
         if path.exists():
             path.unlink()
@@ -214,13 +214,13 @@ async def upload_requirements(
 import concurrent.futures
 
 @app.post("/api/inventory/run")
-def run_inventory(payload: AgentContext) -> dict[str, Any]:
+async def run_inventory(payload: AgentContext) -> dict[str, Any]:
     context = payload.context
     hosts = context.get("hosts")
     
     if not hosts:
         # Fallback for single host execution
-        res = result_with_tokens(inventory_agent.run(context))
+        res = result_with_tokens(await asyncio.to_thread(inventory_agent.run, context))
         if res.get("status") == "ok":
             host = context.get("host", "127.0.0.1")
             try:
@@ -237,42 +237,44 @@ def run_inventory(payload: AgentContext) -> dict[str, Any]:
         merged_ctx = {**context, **host_ctx}
         return inventory_agent.run(merged_ctx)
 
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(run_single, h): h for h in hosts}
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                res = future.result()
-                h = futures[future]
-                res["host"] = h.get("host")
-                results.append(res)
-                
-                # Copy to inventory.json to keep other tabs functioning with latest state
-                if res.get("status") == "ok" and res.get("host"):
-                    host_ip = res["host"]
-                    try:
-                        Path("inventory.json").write_text(Path(f"inventory_{host_ip}.json").read_text(encoding="utf-8"), encoding="utf-8")
-                    except Exception:
-                        pass
-                
-                t = res.get("tokens_used", {})
-                total_tokens["prompt"] += t.get("prompt", 0)
-                total_tokens["completion"] += t.get("completion", 0)
-                total_tokens["total"] += t.get("total", 0)
-            except Exception as e:
-                h = futures[future]
-                results.append({"status": "error", "host": h.get("host"), "error": str(e)})
+    def _run_all():
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            futures = {executor.submit(run_single, h): h for h in hosts}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    res = future.result()
+                    h = futures[future]
+                    res["host"] = h.get("host")
+                    results.append(res)
+                    
+                    # Copy to inventory.json to keep other tabs functioning with latest state
+                    if res.get("status") == "ok" and res.get("host"):
+                        host_ip = res["host"]
+                        try:
+                            Path("inventory.json").write_text(Path(f"inventory_{host_ip}.json").read_text(encoding="utf-8"), encoding="utf-8")
+                        except Exception:
+                            pass
+                    
+                    t = res.get("tokens_used", {})
+                    total_tokens["prompt"] += t.get("prompt", 0)
+                    total_tokens["completion"] += t.get("completion", 0)
+                    total_tokens["total"] += t.get("total", 0)
+                except Exception as e:
+                    h = futures[future]
+                    results.append({"status": "error", "host": h.get("host"), "error": str(e)})
+            return {"status": "ok", "results": results, "tokens_used": total_tokens}
 
-    return {"status": "ok", "results": results, "tokens_used": total_tokens}
+    return await asyncio.to_thread(_run_all)
 
 
 @app.post("/api/packages/run")
-def run_packages(payload: AgentContext) -> dict[str, Any]:
-    return result_with_tokens(packages_agent.run(payload.context))
+async def run_packages(payload: AgentContext) -> dict[str, Any]:
+    return result_with_tokens(await asyncio.to_thread(packages_agent.run, payload.context))
 
 
 @app.post("/api/installer/run")
-def run_installer(payload: AgentContext) -> dict[str, Any]:
-    return result_with_tokens(installer_agent.run(payload.context))
+async def run_installer(payload: AgentContext) -> dict[str, Any]:
+    return result_with_tokens(await asyncio.to_thread(installer_agent.run, payload.context))
 
 
 @app.get("/api/state/{filename}")
@@ -335,13 +337,13 @@ async def events() -> StreamingResponse:
 
     async def stream():
         try:
-            yield "event: ready\\ndata: {}\\n\\n"
+            yield "event: ready\ndata: {}\n\n"
             while True:
                 data = await queue.get()
                 if "log" in data:
-                    yield f"event: log\\ndata: {json.dumps(data)}\\n\\n"
+                    yield f"event: log\ndata: {json.dumps(data)}\n\n"
                 else:
-                    yield f"event: tokens\\ndata: {json.dumps(data)}\\n\\n"
+                    yield f"event: tokens\ndata: {json.dumps(data)}\n\n"
         finally:
             TOKEN_QUEUES.discard(queue)
 
