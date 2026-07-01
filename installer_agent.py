@@ -103,6 +103,7 @@ Each object must have exactly these keys:
 
 CRITICAL RULE 1: Do NOT place `sudo` on the right side of a pipe (e.g. avoid `curl | sudo bash` or `echo | sudo tee`). Instead, wrap the entire command or the pipe sequence in a sudo bash session (e.g. `sudo bash -c 'curl | bash'`), or write to files safely without pipes.
 CRITICAL RULE 2: If you need to set environment variables or source a script (e.g. `source /opt/ros/humble/setup.bash`), you MUST append it to ~/.bashrc using `echo \"source ...\" >> ~/.bashrc` instead of just running it. The command will only persist if you write it to ~/.bashrc.
+CRITICAL RULE 3: Each step runs in a NEW stateless SSH session. Any `cd` or `export` commands will NOT persist to the next step. If a command needs to run inside a specific directory (like a cloned repository), you MUST include the `cd` within the SAME command (e.g., `cd ns-3-dev && ./ns3 configure`).
 
 Output ONLY a raw JSON array. No markdown fences, no explanation.
 [
@@ -312,7 +313,8 @@ RULES:
 4. AVOID putting 'sudo' on the right side of a pipe (e.g. 'curl | sudo bash' or 'echo | sudo tee'). Instead, use 'sudo bash -c "curl | bash"' or another pattern that does not pipe into sudo.
 5. If you see an apt 'Conflicting values set for option Signed-By' error, the root cause is duplicate .list files in /etc/apt/sources.list.d/ pointing to the same repo. Suggest a command to delete the older/duplicate .list file.
 6. If your fix is a prerequisite (like killing a process to release a lock, or fixing a GPG key), you MUST combine it with the ORIGINAL failed command using `&&` (e.g. `sudo fuser -k /var/lib/dpkg/lock-frontend && sudo apt-get install -y <package>`). Your suggested command completely replaces the failed attempt in the cache, so it must accomplish the original step's goal!
-7. Respond with ONLY raw JSON — no markdown, no preamble.
+7. Each attempt runs in a NEW stateless shell. If a file or script is not found (e.g. `./ns3: No such file or directory`), it likely means you need to `cd` into the correct directory first (e.g. `cd ns-3-dev && ./ns3 ...`). Combine them with `&&`.
+8. Respond with ONLY raw JSON — no markdown, no preamble.
 
 JSON FORMAT:
 {{
