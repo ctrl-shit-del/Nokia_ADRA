@@ -106,6 +106,22 @@ def get_models() -> dict[str, Any]:
     llama-server only loads one gguf per process, "switching models" means
     switching which registered endpoint requests go to.
     """
+    # Auto-discover models from llamacpp_manager if running on localhost:8090
+    try:
+        mgr_resp = requests.get("http://127.0.0.1:8090/api/servers", timeout=1)
+        if mgr_resp.status_code == 200:
+            for srv in mgr_resp.json():
+                if srv.get("status") == "running":
+                    host = srv.get("host", "127.0.0.1")
+                    if host == "0.0.0.0":
+                        host = "127.0.0.1"
+                    port = srv.get("port")
+                    name = srv.get("name")
+                    if name and port:
+                        register_model_endpoint(name, f"http://{host}:{port}")
+    except Exception:
+        pass
+        
     registry = list_model_endpoints()
     endpoints_detail = []
     for name, base_url in registry["endpoints"].items():

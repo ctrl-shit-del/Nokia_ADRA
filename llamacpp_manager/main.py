@@ -359,22 +359,22 @@ def list_installed_models() -> list[dict[str, Any]]:
             if not p.is_file():
                 continue
             
-        stat = p.stat()
-        # Parse quantization info from filename
-        quant = "unknown"
-        # Match typical gguf names containing Q4_K_M, Q8_0, F16, etc.
-        match = re.search(r"([qQ]\d_[kK]_\w+|[qQ]\d_\d|[fF]\d+)", p.name)
-        if match:
-            quant = match.group(1).upper()
-            
-        models.append({
-            "filename": str(p.relative_to(MODELS_DIR)),
-            "path": str(p),
-            "size_bytes": stat.st_size,
-            "size_gb": round(stat.st_size / (1024 * 1024 * 1024), 2),
-            "quantization": quant,
-            "modified_time": stat.st_mtime
-        })
+            stat = p.stat()
+            # Parse quantization info from filename
+            quant = "unknown"
+            # Match typical gguf names containing Q4_K_M, Q8_0, F16, etc.
+            match = re.search(r"([qQ]\d_[kK]_\w+|[qQ]\d_\d|[fF]\d+)", p.name)
+            if match:
+                quant = match.group(1).upper()
+                
+            models.append({
+                "filename": str(p.relative_to(MODELS_DIR)),
+                "path": str(p),
+                "size_bytes": stat.st_size,
+                "size_gb": round(stat.st_size / (1024 * 1024 * 1024), 2),
+                "quantization": quant,
+                "modified_time": stat.st_mtime
+            })
     return sorted(models, key=lambda x: x["modified_time"], reverse=True)
 
 @app.get("/api/models/search")
