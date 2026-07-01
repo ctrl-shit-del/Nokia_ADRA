@@ -47,6 +47,13 @@ CRITICAL INSTRUCTIONS:
 - Assume the user has passwordless sudo or the script handles sudo injection.
 - Do NOT use interactive commands. Append `-y` to apt-get/yum.
 - Ensure all required packages are present.
+- NEVER invent a download URL, hostname, or package name that does not literally appear in
+  the documentation provided below. If no documentation is provided, or it does not specify
+  a download location, prefer installing via the system package manager (apt-get/yum) or
+  building from a git clone of a URL explicitly given in the documentation — do NOT fabricate
+  a placeholder URL like example.com or a generic /opt/mysoftware path.
+- If you cannot determine a concrete, document-grounded installation procedure, output an
+  empty JSON array [] rather than guessing.
 
 """
     if source.startswith("upload:"):
@@ -63,6 +70,24 @@ CRITICAL INSTRUCTIONS:
             ]
             where_filter = {"sha256": doc_sha} if doc_sha else {"source": filename} if filename else None
             context = retrieve_context(queries, n_results=5, where_filter=where_filter)
+
+            if not context or not context.strip():
+                # Filtered retrieval found nothing — this usually means the sha/filename
+                # didn't match what's stored in ChromaDB metadata (e.g. hash mismatch,
+                # or the doc was never ingested under this agent run). Retrying without
+                # a filter is safer than silently asking the LLM to invent a pipeline
+                # with zero grounding in the actual document.
+                print(f"  [Planner] WARNING: filtered context lookup (sha={doc_sha!r}, "
+                      f"file={filename!r}) returned 0 chunks. Retrying without filter...")
+                context = retrieve_context(queries, n_results=5, where_filter=None)
+                if context and context.strip():
+                    print(f"  [Planner] Unfiltered retrieval found {len(context)} chars — "
+                          f"using this (may include chunks from other ingested documents).")
+                else:
+                    print(f"  [Planner] WARNING: vector DB has NO content at all for these "
+                          f"queries. The LLM will generate a GENERIC pipeline with no "
+                          f"document grounding — review every step before running it.")
+
             if context and context.strip():
                 prompt += f"The user has provided the following installation manual/documentation:\n---\n{context[:12000]}\n---\n\n"
         except Exception as e:

@@ -1,0 +1,1306 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>llama.cpp Manager</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Outfit', sans-serif;
+    }
+    .mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+    /* Glassmorphism utility classes */
+    .glass {
+      background: rgba(15, 23, 42, 0.45);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .glass-light {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+    }
+    .neon-border-teal {
+      box-shadow: 0 0 15px rgba(20, 184, 166, 0.15);
+      border-color: rgba(20, 184, 166, 0.4);
+    }
+    .neon-border-indigo {
+      box-shadow: 0 0 15px rgba(99, 102, 241, 0.15);
+      border-color: rgba(99, 102, 241, 0.4);
+    }
+    .terminal-scroll::-webkit-scrollbar {
+      width: 6px;
+    }
+    .terminal-scroll::-webkit-scrollbar-track {
+      background: rgba(0, 0, 0, 0.3);
+    }
+    .terminal-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 3px;
+    }
+    .terminal-scroll::-webkit-scrollbar-thumb:hover {
+      background: rgba(255, 255, 255, 0.3);
+    }
+    @keyframes pulse-slow {
+      0%, 100% { opacity: 0.6; }
+      50% { opacity: 1; }
+    }
+    .animate-pulse-slow {
+      animation: pulse-slow 3s infinite;
+    }
+  </style>
+</head>
+<body class="bg-[#0b0f19] text-slate-100 min-h-full flex flex-col antialiased">
+
+  <!-- Header Banner -->
+  <header class="border-b border-slate-800/80 glass sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-500 via-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+          <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl font-bold tracking-tight bg-gradient-to-r from-white via-slate-100 to-slate-400 bg-clip-text text-transparent flex items-center gap-2">
+            llama.cpp Manager
+          </h1>
+          <p class="text-xs text-slate-400 font-medium">Process Director & Downloader</p>
+        </div>
+      </div>
+
+      <!-- Binary Status Flag in Header -->
+      <div id="header-status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-full border border-slate-700/60 bg-slate-900/40 text-xs">
+        <span class="w-2 h-2 rounded-full bg-slate-500 animate-pulse"></span>
+        <span class="text-slate-300 font-medium">Checking System…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Nav Tabs -->
+  <div class="border-b border-slate-800/50 bg-[#0c1120]">
+    <div class="max-w-7xl mx-auto px-6 flex gap-6">
+      <button onclick="switchTab('setup')" id="tab-btn-setup" class="px-3 py-4 text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-white transition-all flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+        Setup & Compiler
+      </button>
+      <button onclick="switchTab('models')" id="tab-btn-models" class="px-3 py-4 text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-white transition-all flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+        Model Library
+      </button>
+      <button onclick="switchTab('servers')" id="tab-btn-servers" class="px-3 py-4 text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-white transition-all flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"/></svg>
+        Running Servers
+      </button>
+      <button onclick="switchTab('network')" id="tab-btn-network" class="px-3 py-4 text-sm font-semibold border-b-2 border-transparent text-slate-400 hover:text-white transition-all flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 10.742l-2.617 2.906a2 2 0 000 2.828L8.242 18.6a2 2 0 002.828 0l2.906-2.617m-1.74-2.122a2 2 0 00-2.827 0L8.684 10.742m0 0a2 2 0 012.827 0l2.122 2.122m-2.122-2.122L17 5m-2.25 2.25L17 5m0 0l-2.25-2.25M17 5l2.25 2.25"/></svg>
+        Network & Sharing
+      </button>
+    </div>
+  </div>
+
+  <!-- Main Workspace -->
+  <main class="flex-1 max-w-7xl w-full mx-auto px-6 py-8">
+    
+    <!-- Setup / Install Check Screen -->
+    <div id="tab-setup" class="tab-content hidden space-y-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Setup Control Panel -->
+        <div class="glass rounded-2xl p-6 flex flex-col justify-between">
+          <div>
+            <h2 class="text-lg font-bold mb-2 text-white">llama-server Binary Status</h2>
+            <p class="text-slate-400 text-sm mb-6 leading-relaxed">
+              Detects whether the core <code>llama-server</code> engine is built and configured on this machine.
+            </p>
+            
+            <div class="space-y-4 mb-6">
+              <div class="flex items-center justify-between p-3 rounded-xl glass-light">
+                <span class="text-slate-300 text-sm font-medium">Executable Binary:</span>
+                <span id="setup-bin-status" class="text-xs px-2.5 py-1 rounded-full font-bold bg-slate-800 text-slate-400">Loading…</span>
+              </div>
+              <div class="flex items-center justify-between p-3 rounded-xl glass-light">
+                <span class="text-slate-300 text-sm font-medium">NVIDIA CUDA (GPU):</span>
+                <span id="setup-cuda-status" class="text-xs px-2.5 py-1 rounded-full font-bold bg-slate-800 text-slate-400">Loading…</span>
+              </div>
+            </div>
+            
+            <div id="install-form" class="space-y-4 border-t border-slate-800/80 pt-5">
+              <div class="flex items-center justify-between">
+                <label for="cuda-checkbox" class="text-sm font-medium text-slate-200">Enable CUDA GPU Acceleration</label>
+                <input type="checkbox" id="cuda-checkbox" class="w-4 h-4 rounded border-slate-700 bg-slate-900 text-teal-600 focus:ring-teal-500">
+              </div>
+              <p class="text-xs text-slate-500 leading-normal">
+                With GPU: compiles with CUDA support for faster processing (requires NVIDIA Toolkit). Without: CPU compilation, works universally.
+              </p>
+            </div>
+          </div>
+          
+          <div class="mt-8">
+            <button onclick="startBuild()" id="build-btn" class="w-full py-3 rounded-xl bg-gradient-to-r from-teal-500 to-indigo-600 hover:from-teal-400 hover:to-indigo-500 font-bold transition-all shadow-lg shadow-indigo-900/30 flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+              Build & Install llama.cpp
+            </button>
+          </div>
+        </div>
+
+        <!-- Build Progress logs Terminal -->
+        <div class="lg:col-span-2 glass rounded-2xl border border-slate-800/80 flex flex-col h-[420px]">
+          <div class="border-b border-slate-800/80 px-5 py-3 flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="w-3 h-3 rounded-full bg-rose-500/80"></span>
+              <span class="w-3 h-3 rounded-full bg-yellow-500/80"></span>
+              <span class="w-3 h-3 rounded-full bg-green-500/80"></span>
+              <span class="text-xs font-semibold text-slate-400 ml-2 font-mono">build_stream.sh</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span id="terminal-pulse" class="w-2.5 h-2.5 rounded-full bg-slate-500"></span>
+              <span id="terminal-status" class="text-xs font-mono text-slate-500 uppercase tracking-wider font-bold">Idle</span>
+            </div>
+          </div>
+          <div id="build-terminal" class="flex-1 p-5 bg-black/60 rounded-b-2xl font-mono text-xs text-slate-300 overflow-y-auto terminal-scroll space-y-1">
+            <div class="text-slate-500"># Output terminal logs will stream here...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Model Library Screen -->
+    <div id="tab-models" class="tab-content hidden space-y-8">
+      
+      <!-- Browse HF & Curated Quick Picks -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Curated Quick Picks -->
+        <div class="lg:col-span-2 glass rounded-2xl p-6">
+          <h2 class="text-lg font-bold mb-1 text-white">Curated Models</h2>
+          <p class="text-xs text-slate-400 mb-6">Select a pre-configured quantization model for optimized performance.</p>
+          
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            
+            <!-- Quick Card Qwen 2.5 7B -->
+            <div class="glass-light rounded-xl p-5 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400">Qwen2.5-7B-Instruct</span>
+                  <span class="text-xs text-slate-400 font-bold">~4.5 GB</span>
+                </div>
+                <h3 class="font-bold text-white mb-1">Qwen 2.5 7B Instruct</h3>
+                <p class="text-xs text-slate-400 leading-normal mb-4">Highly capable model. Balanced speed and intelligence. Fits in 8GB+ RAM/VRAM.</p>
+              </div>
+              <button onclick="downloadCurated('Qwen/Qwen2.5-7B-Instruct-GGUF', 'qwen2.5-7b-instruct-q4_k_m.gguf')" class="w-full py-2 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-xs font-bold transition-colors">Download Q4_K_M</button>
+            </div>
+            
+            <!-- Quick Card Qwen 2.5 14B -->
+            <div class="glass-light rounded-xl p-5 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400">Qwen2.5-14B-Instruct</span>
+                  <span class="text-xs text-slate-400 font-bold">~9.0 GB</span>
+                </div>
+                <h3 class="font-bold text-white mb-1">Qwen 2.5 14B Instruct</h3>
+                <p class="text-xs text-slate-400 leading-normal mb-4">Excellent reasoning capability. Recommended for heavier text processing tasks.</p>
+              </div>
+              <button onclick="downloadCurated('Qwen/Qwen2.5-14B-Instruct-GGUF', 'qwen2.5-14b-instruct-q4_k_m.gguf')" class="w-full py-2 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-xs font-bold transition-colors">Download Q4_K_M</button>
+            </div>
+            
+            <!-- Quick Card Qwen 3 8B -->
+            <div class="glass-light rounded-xl p-5 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded bg-teal-500/20 text-teal-400">Qwen3-8B-Instruct</span>
+                  <span class="text-xs text-slate-400 font-bold">~5.2 GB</span>
+                </div>
+                <h3 class="font-bold text-white mb-1">Qwen 3 8B Instruct</h3>
+                <p class="text-xs text-slate-400 leading-normal mb-4">Latest generation models. Optimised for structured data, coding, and system skills.</p>
+              </div>
+              <button onclick="downloadCurated('Qwen/Qwen3-8b-instruct-gguf', 'qwen3-8b-instruct-q4_k_m.gguf')" class="w-full py-2 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-xs font-bold transition-colors">Download Q4_K_M</button>
+            </div>
+
+            <!-- Quick Card Llama 3.1 8B -->
+            <div class="glass-light rounded-xl p-5 border border-slate-800 flex flex-col justify-between hover:border-slate-700 transition-all">
+              <div>
+                <div class="flex items-center justify-between mb-3">
+                  <span class="text-xs font-bold px-2 py-0.5 rounded bg-purple-500/20 text-purple-400">Llama-3.1-8B-Instruct</span>
+                  <span class="text-xs text-slate-400 font-bold">~4.8 GB</span>
+                </div>
+                <h3 class="font-bold text-white mb-1">Llama 3.1 8B Instruct</h3>
+                <p class="text-xs text-slate-400 leading-normal mb-4">Meta's flagship mid-size model. Highly versatile, strong english capabilities.</p>
+              </div>
+              <button onclick="downloadCurated('bartowski/Meta-Llama-3.1-8B-Instruct-GGUF', 'Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf')" class="w-full py-2 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-xs font-bold transition-colors">Download Q4_K_M</button>
+            </div>
+            
+          </div>
+        </div>
+        
+        <!-- HuggingFace Search and Downloads Panel -->
+        <div class="glass rounded-2xl p-6 flex flex-col">
+          <h2 class="text-lg font-bold mb-1 text-white">Browse HuggingFace</h2>
+          <p class="text-xs text-slate-400 mb-6">Fetch and download any GGUF models directly by specifying repo path.</p>
+          
+          <div class="flex gap-2 mb-4">
+            <input type="text" id="hf-repo-input" placeholder="e.g. Qwen/Qwen2.5-0.5B-Instruct-GGUF" class="flex-1 text-sm border border-slate-700/80 rounded-xl px-3 py-2 bg-slate-950/60 focus:border-indigo-500 focus:outline-none placeholder-slate-500 text-slate-200">
+            <button onclick="searchHF()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold transition-colors">Search</button>
+          </div>
+
+          <!-- HF Search Results Area -->
+          <div id="hf-search-results" class="flex-1 overflow-y-auto max-h-[220px] mb-4 space-y-2 border border-slate-800/80 rounded-xl p-3 bg-black/20 terminal-scroll">
+            <div class="text-slate-500 text-xs text-center py-8">Search result files will be shown here.</div>
+          </div>
+          
+          <!-- Download Active Progress Card -->
+          <div id="download-progress-card" class="hidden p-4 rounded-xl border border-teal-500/30 bg-teal-950/10 neon-border-teal">
+            <div class="flex justify-between items-center mb-1.5">
+              <span id="dl-repo-label" class="text-xs font-bold text-teal-400 truncate max-w-[180px]">Qwen/Qwen2.5-0.5B...</span>
+              <span id="dl-percent" class="text-xs font-bold text-teal-400">0%</span>
+            </div>
+            <div class="w-full bg-slate-800 rounded-full h-2 mb-3 overflow-hidden">
+              <div id="dl-bar" class="bg-gradient-to-r from-teal-400 to-indigo-500 h-full transition-all duration-300" style="width: 0%"></div>
+            </div>
+            <div class="flex justify-between text-[10px] text-slate-400">
+              <span id="dl-bytes">0 / 0 MB</span>
+              <span id="dl-speed-eta" class="font-semibold text-teal-400">0 MB/s · ETA --:--</span>
+            </div>
+          </div>
+          
+        </div>
+      </div>
+      
+      <!-- Installed Models List Grid -->
+      <div class="glass rounded-2xl p-6">
+        <h2 class="text-lg font-bold mb-1 text-white">Installed Models</h2>
+        <p class="text-xs text-slate-400 mb-6">List of locally stored <code>.gguf</code> files inside <code>~/models/</code> directory.</p>
+        
+        <div id="installed-models-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Dynamically populated -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Running Servers Screen -->
+    <div id="tab-servers" class="tab-content hidden space-y-6">
+      
+      <!-- Split screen: start server form + list of servers -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Start Server Form -->
+        <div class="glass rounded-2xl p-6 h-fit border border-indigo-500/20 neon-border-indigo">
+          <h2 class="text-lg font-bold mb-2 text-white">Start New Instance</h2>
+          <p class="text-xs text-slate-400 mb-6 leading-relaxed">
+            Configure parameters to spawn a separate background <code>llama-server</code> daemon.
+          </p>
+          
+          <form id="start-server-form" onsubmit="event.preventDefault(); startServer();" class="space-y-4">
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Instance Name</label>
+              <input type="text" id="srv-name" required placeholder="e.g. qwen-core" class="w-full text-sm border border-slate-700/80 rounded-xl px-3 py-2 bg-slate-950/60 focus:border-indigo-500 focus:outline-none text-slate-200">
+            </div>
+            
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Select Model File</label>
+              <select id="srv-model-select" required class="w-full text-sm border border-slate-700/80 rounded-xl px-3 py-2 bg-slate-900 focus:border-indigo-500 focus:outline-none text-slate-200">
+                <option value="">-- Choose Installed GGUF --</option>
+              </select>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Port</label>
+                <input type="number" id="srv-port" required value="8080" class="w-full text-sm border border-slate-700/80 rounded-xl px-3 py-2 bg-slate-950/60 focus:border-indigo-500 focus:outline-none text-slate-200">
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-400 mb-1 uppercase tracking-wider">Context Size</label>
+                <input type="number" id="srv-ctx" required value="2048" class="w-full text-sm border border-slate-700/80 rounded-xl px-3 py-2 bg-slate-950/60 focus:border-indigo-500 focus:outline-none text-slate-200">
+              </div>
+            </div>
+
+            <div>
+              <div class="flex justify-between items-center mb-1">
+                <label class="text-xs font-bold text-slate-400 uppercase tracking-wider">GPU Layers (-ngl)</label>
+                <span id="srv-ngl-val" class="text-xs font-bold text-indigo-400 font-mono">99</span>
+              </div>
+              <input type="range" id="srv-ngl" min="0" max="120" value="99" oninput="document.getElementById('srv-ngl-val').innerText = this.value" class="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-indigo-500">
+              <span class="text-[10px] text-slate-500 mt-1 block">Set to 0 for CPU-only, or max layers to load on graphics card.</span>
+            </div>
+
+            <div>
+              <label class="block text-xs font-bold text-slate-400 mb-1.5 uppercase tracking-wider">Network Binding</label>
+              <div class="flex items-center gap-4 p-2.5 rounded-xl border border-slate-800 bg-slate-950/40">
+                <input type="checkbox" id="srv-host-toggle" class="w-4 h-4 rounded border-slate-700 bg-slate-900 text-indigo-600 focus:ring-indigo-500">
+                <div>
+                  <label for="srv-host-toggle" class="text-xs font-semibold text-slate-200 block">Expose on Local Network (0.0.0.0)</label>
+                  <span class="text-[9px] text-slate-400 leading-normal block">Allows other machines on network, like ADRA server, to hook into this endpoint.</span>
+                </div>
+              </div>
+            </div>
+            
+            <button type="submit" class="w-full py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 font-bold transition-all text-sm mt-4 shadow-lg shadow-indigo-950/30">
+              Start Server Process
+            </button>
+          </form>
+        </div>
+
+        <!-- Servers list table/cards -->
+        <div class="lg:col-span-2 space-y-6 flex flex-col justify-between">
+          <div class="glass rounded-2xl p-6 flex-1">
+            <h2 class="text-lg font-bold mb-1 text-white">Running Servers</h2>
+            <p class="text-xs text-slate-400 mb-6">Manage child <code>llama-server</code> subprocesses and view their system telemetry.</p>
+            
+            <div class="overflow-x-auto">
+              <table class="w-full text-left text-sm text-slate-300">
+                <thead>
+                  <tr class="border-b border-slate-800/80 text-[10px] uppercase tracking-wider text-slate-500 font-bold">
+                    <th class="pb-3 pl-2">Name</th>
+                    <th class="pb-3">Model</th>
+                    <th class="pb-3">Port / Host</th>
+                    <th class="pb-3">Uptime</th>
+                    <th class="pb-3">Tokens/Sec</th>
+                    <th class="pb-3">Status</th>
+                    <th class="pb-3 pr-2 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="servers-table-body">
+                  <!-- Dynamically populated -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Collapsible Live Log Tail View -->
+      <div id="logs-panel" class="hidden glass rounded-2xl border border-slate-800/80 flex flex-col h-[400px]">
+        <div class="border-b border-slate-800/80 px-5 py-3 flex items-center justify-between bg-black/20">
+          <div class="flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+            <span class="text-xs font-bold text-slate-300 font-mono">logs tail · <span id="active-log-srv-name" class="text-indigo-400 font-bold">srv-name</span></span>
+          </div>
+          <div class="flex items-center gap-3">
+            <button onclick="copyLogTail()" class="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-[10px] font-bold text-slate-300 transition-colors">Copy Last 50 Lines</button>
+            <button onclick="closeLogsPanel()" class="text-slate-500 hover:text-slate-300 transition-colors">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        </div>
+        <div id="srv-log-terminal" class="flex-1 p-5 bg-black/60 rounded-b-2xl font-mono text-xs text-slate-300 overflow-y-auto terminal-scroll space-y-1">
+          <!-- Live logs -->
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Network / Sharing Panel -->
+    <div id="tab-network" class="tab-content hidden space-y-6">
+      
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Host LAN IP Details -->
+        <div class="glass rounded-2xl p-6">
+          <h2 class="text-lg font-bold mb-2 text-white">Local Network Address Info</h2>
+          <p class="text-xs text-slate-400 mb-6 leading-relaxed">
+            These IP addresses identify this host machine on your local network. External computers (e.g. your ADRA control server) can use these to query running endpoints.
+          </p>
+          
+          <div id="lan-ip-list" class="space-y-3 mb-6">
+            <!-- Dynamically populated -->
+          </div>
+          
+          <div class="p-4 rounded-xl border border-slate-800/80 bg-slate-950/40 text-xs text-slate-400 leading-normal">
+            <span class="font-bold text-slate-300 block mb-1">Firewall Configuration Note:</span>
+            If ports are open but unreachable from other machines, make sure your host firewall allows incoming connections:
+            <code class="block font-mono bg-black/60 p-2 rounded mt-2 border border-slate-800 text-slate-200">sudo ufw allow 8080/tcp</code>
+          </div>
+        </div>
+        
+        <!-- Connection Endpoint registration dashboard -->
+        <div class="glass rounded-2xl p-6 flex flex-col justify-between">
+          <div>
+            <h2 class="text-lg font-bold mb-2 text-white">ADRA Integration Endpoints</h2>
+            <p class="text-xs text-slate-400 mb-6 leading-relaxed">
+              Copy these connection strings to configure or register the active model in your ADRA Command Center.
+            </p>
+            
+            <div id="endpoint-copy-list" class="space-y-4">
+              <div class="text-slate-500 text-xs text-center py-10">No servers are running on 0.0.0.0. Bind a server to 0.0.0.0 to generate network integration endpoints.</div>
+            </div>
+          </div>
+          
+          <!-- Test Connection Interface -->
+          <div class="border-t border-slate-800/80 pt-5 mt-6">
+            <h3 class="text-xs font-bold text-slate-400 mb-3 uppercase tracking-wider">Connection Tester</h3>
+            <div class="flex gap-2">
+              <input type="text" id="test-endpoint-url" placeholder="http://127.0.0.1:8080" class="flex-1 text-sm border border-slate-700/80 rounded-xl px-3 py-2 bg-slate-950/60 focus:border-indigo-500 focus:outline-none text-slate-200">
+              <button onclick="testConnection()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-xl text-xs font-bold transition-colors">Test</button>
+            </div>
+            <div id="test-result-box" class="hidden mt-3 p-3 rounded-lg text-xs font-medium font-mono"></div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- Crash Banner notification -->
+  <div id="crash-banner" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 max-w-md w-full bg-rose-950/80 border border-rose-500/40 rounded-2xl p-4 shadow-xl backdrop-blur">
+    <div class="flex items-start gap-3">
+      <div class="p-1 bg-rose-500/20 rounded-lg text-rose-400 mt-0.5">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+      </div>
+      <div class="flex-1">
+        <h4 class="font-bold text-white text-sm mb-0.5">Server Crash Detected</h4>
+        <p id="crash-banner-desc" class="text-xs text-rose-300 mb-2">llama-server closed unexpectedly. Check the logs.</p>
+        <div id="crash-banner-tail" class="text-[9px] font-mono bg-black/40 p-2 rounded border border-rose-950 text-rose-400/90 max-h-[80px] overflow-y-auto mb-2 select-all">
+          No logs available.
+        </div>
+        <div class="flex justify-end gap-2">
+          <button onclick="dismissCrash()" class="px-3 py-1.5 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-[10px] font-bold text-slate-300 transition-colors">Dismiss</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <footer class="border-t border-slate-800/80 py-4 px-6 text-center text-xs text-slate-500 glass">
+    <p>&copy; 2026 Nokia Aurelis Fleet Control Services · VIT Chennai SENSE Team</p>
+  </footer>
+
+  <!-- Frontend Javascript Orchestration -->
+  <script>
+    let activeTab = "setup";
+    let isCudaAvailable = false;
+    let binaryExists = false;
+    let srvLogInterval = null;
+    let srvActiveLogName = null;
+    let buildEventSource = null;
+    let downloadEventSource = null;
+    let knownServerPids = {};
+    let firstStatusLoad = true;
+
+    // Initialize Page
+    window.addEventListener('DOMContentLoaded', () => {
+      switchTab('setup');
+      checkStatus();
+      loadInstalledModels();
+      loadServersList();
+      loadNetworkInfo();
+      
+      // SSE connection for downloads
+      setupDownloadSSE();
+      
+      // Auto-poll servers status every 5 seconds
+      setInterval(() => {
+        loadServersList();
+      }, 5000);
+    });
+
+    // Tab Switching
+    function switchTab(tabId) {
+      activeTab = tabId;
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.getElementById('tab-' + tabId).classList.remove('hidden');
+      
+      document.querySelectorAll('[id^="tab-btn-"]').forEach(btn => {
+        btn.classList.remove('border-indigo-500', 'text-white');
+        btn.classList.add('border-transparent', 'text-slate-400');
+      });
+      document.getElementById('tab-btn-' + tabId).classList.add('border-indigo-500', 'text-white');
+      
+      if (tabId === 'servers') {
+        loadServersList();
+        loadInstalledModels(); // Refresh dropdown
+      } else if (tabId === 'network') {
+        loadNetworkInfo();
+      } else if (tabId === 'setup') {
+        checkStatus();
+      }
+    }
+
+    // API Status Check
+    async function checkStatus() {
+      try {
+        const res = await fetch('/api/setup/status');
+        const data = await res.json();
+        
+        binaryExists = data.binary_exists;
+        isCudaAvailable = data.cuda_available;
+        
+        // Update setup screen details
+        const binBadge = document.getElementById('setup-bin-status');
+        if (binaryExists) {
+          binBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-green-500/20 text-green-400 border border-green-500/30";
+          binBadge.innerText = "Available";
+          
+          document.getElementById('header-status-badge').innerHTML = `
+            <span class="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
+            <span class="text-slate-300 font-semibold">llama-server Ready</span>
+          `;
+          
+          document.getElementById('build-btn').innerText = "Re-build / Update llama.cpp";
+        } else {
+          binBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30";
+          binBadge.innerText = "Missing";
+          
+          document.getElementById('header-status-badge').innerHTML = `
+            <span class="w-2 h-2 rounded-full bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.8)]"></span>
+            <span class="text-slate-300 font-semibold">llama-server Missing</span>
+          `;
+          
+          document.getElementById('build-btn').innerText = "Build & Install llama.cpp";
+        }
+        
+        const cudaBadge = document.getElementById('setup-cuda-status');
+        if (isCudaAvailable) {
+          cudaBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-teal-500/20 text-teal-400 border border-teal-500/30";
+          cudaBadge.innerText = "Found";
+          if (firstStatusLoad) {
+            document.getElementById('cuda-checkbox').checked = true;
+          }
+        } else {
+          cudaBadge.className = "text-xs px-2.5 py-1 rounded-full font-bold bg-slate-800 text-slate-500 border border-slate-700/30";
+          cudaBadge.innerText = "Not Found";
+          document.getElementById('cuda-checkbox').checked = false;
+          document.getElementById('cuda-checkbox').disabled = true;
+        }
+        
+        firstStatusLoad = false;
+        
+        // Build Process Status
+        const pulse = document.getElementById('terminal-pulse');
+        const statusText = document.getElementById('terminal-status');
+        
+        if (data.build_status === "building") {
+          pulse.className = "w-2.5 h-2.5 rounded-full bg-yellow-500 animate-pulse";
+          statusText.innerText = "Compiling…";
+          statusText.className = "text-xs font-mono text-yellow-500 uppercase tracking-wider font-bold";
+          document.getElementById('build-btn').disabled = true;
+          document.getElementById('build-btn').classList.add('opacity-50', 'cursor-not-allowed');
+          
+          // Connect Build SSE if not connected
+          setupBuildSSE();
+        } else if (data.build_status === "success") {
+          pulse.className = "w-2.5 h-2.5 rounded-full bg-green-500";
+          statusText.innerText = "Success";
+          statusText.className = "text-xs font-mono text-green-500 uppercase tracking-wider font-bold";
+          enableBuildButton();
+        } else if (data.build_status === "failed") {
+          pulse.className = "w-2.5 h-2.5 rounded-full bg-rose-500";
+          statusText.innerText = "Failed";
+          statusText.className = "text-xs font-mono text-rose-500 uppercase tracking-wider font-bold";
+          enableBuildButton();
+        } else {
+          pulse.className = "w-2.5 h-2.5 rounded-full bg-slate-500";
+          statusText.innerText = "Idle";
+          statusText.className = "text-xs font-mono text-slate-500 uppercase tracking-wider font-bold";
+          enableBuildButton();
+        }
+      } catch (e) {
+        console.error("Failed to fetch setup status:", e);
+      }
+    }
+
+    function enableBuildButton() {
+      const btn = document.getElementById('build-btn');
+      btn.disabled = false;
+      btn.classList.remove('opacity-50', 'cursor-not-allowed');
+    }
+
+    // Build Execution
+    async function startBuild() {
+      const cudaEnabled = document.getElementById('cuda-checkbox').checked;
+      
+      const term = document.getElementById('build-terminal');
+      term.innerHTML = '<div class="text-slate-400"># Starting compile session...</div>';
+      
+      try {
+        const res = await fetch('/api/setup/install', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ cuda: cudaEnabled })
+        });
+        
+        if (res.ok) {
+          setupBuildSSE();
+          checkStatus();
+        } else {
+          const err = await res.json();
+          alert('Build failed to initiate: ' + err.detail);
+        }
+      } catch (e) {
+        alert('Build API connection error.');
+      }
+    }
+
+    function setupBuildSSE() {
+      if (buildEventSource) {
+        buildEventSource.close();
+      }
+      
+      buildEventSource = new EventSource('/api/setup/logs');
+      const term = document.getElementById('build-terminal');
+      
+      buildEventSource.onmessage = (event) => {
+        const line = event.data;
+        const lineDiv = document.createElement('div');
+        lineDiv.className = 'leading-relaxed hover:bg-slate-900/40 px-1 py-0.5 rounded';
+        lineDiv.innerText = line;
+        term.appendChild(lineDiv);
+        term.scrollTop = term.scrollHeight;
+        
+        // Automatically fetch compiler status on complete compile signals
+        if (line.includes("llama-server successfully compiled") || line.includes("failed") || line.includes("Error occurred")) {
+          checkStatus();
+          if (buildEventSource) {
+            buildEventSource.close();
+            buildEventSource = null;
+          }
+        }
+      };
+
+      buildEventSource.onerror = () => {
+        checkStatus();
+        if (buildEventSource) {
+          buildEventSource.close();
+          buildEventSource = null;
+        }
+      };
+    }
+
+    // Model Library Loading
+    async function loadInstalledModels() {
+      try {
+        const res = await fetch('/api/models/installed');
+        const models = await res.json();
+        
+        const grid = document.getElementById('installed-models-grid');
+        const srvDropdown = document.getElementById('srv-model-select');
+        
+        // Preserving selection
+        const previousSelect = srvDropdown.value;
+        
+        srvDropdown.innerHTML = '<option value="">-- Choose Installed GGUF --</option>';
+        
+        if (models.length === 0) {
+          grid.innerHTML = `
+            <div class="col-span-full py-16 text-center text-slate-500 border border-dashed border-slate-800/80 rounded-2xl bg-slate-950/20">
+              <svg class="w-12 h-12 mx-auto text-slate-600 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z"/>
+              </svg>
+              <h3 class="font-semibold text-slate-400">No Models Found</h3>
+              <p class="text-xs text-slate-600 mt-1">Browse HuggingFace or use curated downloads to install your first model.</p>
+            </div>
+          `;
+          return;
+        }
+        
+        grid.innerHTML = '';
+        models.forEach(m => {
+          // Dropdown options
+          const opt = document.createElement('option');
+          opt.value = m.filename;
+          opt.innerText = `${m.filename} (${m.size_gb} GB)`;
+          srvDropdown.appendChild(opt);
+          
+          // Card template
+          const card = document.createElement('div');
+          card.className = "glass-light rounded-xl p-5 border border-slate-800/80 hover:border-slate-700/80 transition-all flex flex-col justify-between";
+          card.innerHTML = `
+            <div>
+              <div class="flex items-center justify-between mb-3">
+                <span class="text-xs font-bold px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-400 border border-indigo-500/10">${m.quantization}</span>
+                <span class="text-xs text-slate-400 font-bold font-mono">${m.size_gb} GB</span>
+              </div>
+              <h3 class="font-bold text-white mb-1 truncate text-sm" title="${m.filename}">${m.filename}</h3>
+              <p class="text-[11px] text-slate-500 truncate mono mb-4">${m.path}</p>
+            </div>
+            <button onclick="runModel('${m.filename}')" class="w-full py-2 bg-teal-600/80 hover:bg-teal-600 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-1">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+              Start server
+            </button>
+          `;
+          grid.appendChild(card);
+        });
+        
+        // Restore dropdown value
+        if (previousSelect && models.some(m => m.filename === previousSelect)) {
+          srvDropdown.value = previousSelect;
+        }
+      } catch (e) {
+        console.error("Failed to load models:", e);
+      }
+    }
+
+    function runModel(filename) {
+      switchTab('servers');
+      document.getElementById('srv-model-select').value = filename;
+      
+      // Auto fill instance name
+      const cleanName = filename.toLowerCase().replace(/[^a-z0-9]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 15);
+      document.getElementById('srv-name').value = cleanName || 'llama-server';
+    }
+
+    // HuggingFace Model Search & Downloading
+    async function searchHF() {
+      const repoInput = document.getElementById('hf-repo-input').value.trim();
+      if (!repoInput) return;
+      
+      const resultsDiv = document.getElementById('hf-search-results');
+      resultsDiv.innerHTML = '<div class="text-slate-500 text-xs text-center py-8 flex items-center justify-center gap-2"><svg class="animate-spin w-4 h-4 text-indigo-400" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Querying HuggingFace API…</div>';
+      
+      try {
+        const res = await fetch(`/api/models/search?repo=${encodeURIComponent(repoInput)}`);
+        if (!res.ok) {
+          const err = await res.json();
+          resultsDiv.innerHTML = `<div class="text-rose-500 text-xs text-center py-8 font-medium">Error: ${err.detail || 'Failed search'}</div>`;
+          return;
+        }
+        
+        const files = await res.json();
+        if (files.length === 0) {
+          resultsDiv.innerHTML = '<div class="text-slate-500 text-xs text-center py-8">No .gguf files found in this repository.</div>';
+          return;
+        }
+        
+        resultsDiv.innerHTML = '';
+        files.forEach(f => {
+          const item = document.createElement('div');
+          item.className = "flex items-center justify-between p-2 rounded-lg bg-slate-900/30 hover:bg-slate-900/60 border border-slate-800 transition-colors";
+          
+          item.innerHTML = `
+            <span class="text-xs text-slate-300 truncate max-w-[200px]" title="${f.filename}">${f.filename}</span>
+            <button onclick="downloadModel('${repoInput}', '${f.filename}')" class="px-2.5 py-1 bg-indigo-600/80 hover:bg-indigo-600 text-[10px] font-bold rounded transition-colors">Download</button>
+          `;
+          resultsDiv.appendChild(item);
+        });
+      } catch (e) {
+        resultsDiv.innerHTML = '<div class="text-rose-500 text-xs text-center py-8 font-medium">Failed to search HuggingFace.</div>';
+      }
+    }
+
+    async function downloadModel(repoId, filename) {
+      // Handle multi-part GGUF auto download if needed
+      // Find matches in resultsDiv to download all parts
+      let filenamesToDownload = [filename];
+      
+      // Check if this is a multi-part split file
+      const matchSplit = filename.match(/(.*)-(\d+)-of-(\d+)\.gguf/);
+      if (matchSplit) {
+        const baseName = matchSplit[1];
+        const totalParts = parseInt(matchSplit[3]);
+        const confirmMulti = confirm(`This file is part of a split GGUF model. Do you want to download all ${totalParts} parts automatically to allow loading the complete model?`);
+        
+        if (confirmMulti) {
+          filenamesToDownload = [];
+          for (let p = 1; p <= totalParts; p++) {
+            const padPart = String(p).padStart(5, '0');
+            const padTotal = String(totalParts).padStart(5, '0');
+            filenamesToDownload.push(`${baseName}-${padPart}-of-${padTotal}.gguf`);
+          }
+        }
+      }
+      
+      try {
+        const res = await fetch('/api/models/download', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({
+            repo_id: repoId,
+            filenames: filenamesToDownload
+          })
+        });
+        
+        if (res.ok) {
+          setupDownloadSSE();
+        } else {
+          const err = await res.json();
+          alert('Download failed to start: ' + err.detail);
+        }
+      } catch (e) {
+        alert('Failed to connect to download API.');
+      }
+    }
+
+    function downloadCurated(repoId, filename) {
+      downloadModel(repoId, filename);
+    }
+
+    function setupDownloadSSE() {
+      if (downloadEventSource) {
+        downloadEventSource.close();
+      }
+      
+      downloadEventSource = new EventSource('/api/models/download/progress');
+      const card = document.getElementById('download-progress-card');
+      const label = document.getElementById('dl-repo-label');
+      const percent = document.getElementById('dl-percent');
+      const bar = document.getElementById('dl-bar');
+      const bytes = document.getElementById('dl-bytes');
+      const speed = document.getElementById('dl-speed-eta');
+      
+      downloadEventSource.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        // Find if there are active downloads
+        const activeRepoKeys = Object.keys(data);
+        if (activeRepoKeys.length === 0) {
+          card.classList.add('hidden');
+          return;
+        }
+        
+        // Render first active download (simplifies interface)
+        const activeDl = data[activeRepoKeys[0]];
+        if (activeDl.status === "downloading") {
+          card.classList.remove('hidden');
+          label.innerText = activeDl.repo_id;
+          label.title = `${activeDl.repo_id} (${activeDl.current_file})`;
+          percent.innerText = activeDl.progress + '%';
+          bar.style.width = activeDl.progress + '%';
+          
+          const downloadedMB = (activeDl.downloaded_bytes / (1024 * 1024)).toFixed(1);
+          const totalMB = (activeDl.total_bytes / (1024 * 1024)).toFixed(1);
+          bytes.innerText = `${downloadedMB} / ${totalMB} MB`;
+          
+          // Speed & ETA formatting
+          const etaMinutes = Math.floor(activeDl.eta / 60);
+          const etaSeconds = activeDl.eta % 60;
+          const etaString = String(etaMinutes).padStart(2, '0') + ':' + String(etaSeconds).padStart(2, '0');
+          
+          speed.innerText = `${activeDl.speed} MB/s · ETA ${etaString}`;
+        } else if (activeDl.status === "success") {
+          card.classList.add('hidden');
+          loadInstalledModels(); // Refresh list
+          alert(`Model successfully downloaded: ${activeDl.repo_id}`);
+        } else if (activeDl.status === "failed") {
+          card.classList.add('hidden');
+          alert(`Download failed for ${activeDl.repo_id}. Error: ${activeDl.error}`);
+        }
+      };
+      
+      downloadEventSource.onerror = () => {
+        if (downloadEventSource) {
+          downloadEventSource.close();
+          downloadEventSource = null;
+        }
+      };
+    }
+
+    // Process Manager Servers List & Telemetry
+    async function loadServersList() {
+      try {
+        const res = await fetch('/api/servers');
+        const servers = await res.json();
+        
+        const tbody = document.getElementById('servers-table-body');
+        
+        if (servers.length === 0) {
+          tbody.innerHTML = `
+            <tr>
+              <td colspan="7" class="py-12 text-center text-slate-500">
+                No server instances started yet.
+              </td>
+            </tr>
+          `;
+          return;
+        }
+        
+        // Render table rows
+        tbody.innerHTML = '';
+        
+        for (const s of servers) {
+          // Fetch token rate asynchronously so table load is fast
+          let tpsText = "Loading…";
+          
+          // Form binding check
+          const hostDisplay = s.host === "0.0.0.0" ? "0.0.0.0 (LAN)" : s.host;
+          const uftText = formatUptime(s.uptime);
+          
+          // Check for unexpected crash signals to surface a banner notification
+          if (s.status === "crashed" && knownServerPids[s.name] === "running") {
+            triggerCrashNotification(s.name);
+          }
+          
+          // Save status memory
+          knownServerPids[s.name] = s.status;
+          
+          const statusColors = {
+            "running": "bg-green-500/20 text-green-400 border-green-500/30",
+            "crashed": "bg-rose-500/20 text-rose-400 border-rose-500/30 animate-pulse",
+            "stopped": "bg-slate-800 text-slate-500 border-slate-700/30"
+          };
+          
+          const statusBadge = `<span class="text-xs px-2 py-0.5 rounded-full font-bold border ${statusColors[s.status] || statusColors['stopped']}">${s.status}</span>`;
+          
+          const tr = document.createElement('tr');
+          tr.className = "border-b border-slate-800/50 hover:bg-slate-900/20 transition-colors";
+          
+          tr.innerHTML = `
+            <td class="py-4 pl-2 font-bold text-white">${s.name}</td>
+            <td class="py-4 truncate max-w-[120px] font-mono text-xs text-slate-400" title="${s.model}">${s.model}</td>
+            <td class="py-4 font-mono text-xs"><span class="text-indigo-400 font-bold">${s.port}</span> <span class="text-slate-600">/</span> ${hostDisplay}</td>
+            <td class="py-4 text-xs font-mono">${uftText}</td>
+            <td class="py-4 text-xs font-mono text-indigo-400 font-bold" id="tps-${s.name}">${tpsText}</td>
+            <td class="py-4">${statusBadge}</td>
+            <td class="py-4 pr-2 text-right space-x-1.5">
+              <button onclick="viewServerLogs('${s.name}')" class="px-2 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-bold rounded transition-colors">Logs</button>
+              ${s.status === 'running' ? `
+                <button onclick="restartServer('${s.name}')" class="px-2 py-1 bg-yellow-600/20 hover:bg-yellow-600/40 text-yellow-400 border border-yellow-500/20 text-[10px] font-bold rounded transition-colors">Restart</button>
+                <button onclick="stopServer('${s.name}')" class="px-2 py-1 bg-rose-600/20 hover:bg-rose-600/40 text-rose-400 border border-rose-500/20 text-[10px] font-bold rounded transition-colors">Stop</button>
+              ` : `
+                <button onclick="restartServer('${s.name}')" class="px-2 py-1 bg-green-600/20 hover:bg-green-600/40 text-green-400 border border-green-500/20 text-[10px] font-bold rounded transition-colors">Start</button>
+              `}
+            </td>
+          `;
+          tbody.appendChild(tr);
+          
+          // Trigger token metrics query
+          if (s.status === 'running') {
+            queryMetrics(s.name);
+          } else {
+            const tpsCell = document.getElementById(`tps-${s.name}`);
+            if (tpsCell) tpsCell.innerText = "0.0";
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load servers list:", e);
+      }
+    }
+
+    async function queryMetrics(name) {
+      try {
+        const res = await fetch(`/api/servers/metrics/${name}`);
+        const m = await res.json();
+        const tpsCell = document.getElementById(`tps-${name}`);
+        if (tpsCell) {
+          tpsCell.innerText = m.status === 'online' ? m.tokens_sec.toFixed(1) : "0.0";
+        }
+      } catch (e) {
+        const tpsCell = document.getElementById(`tps-${name}`);
+        if (tpsCell) tpsCell.innerText = "0.0";
+      }
+    }
+
+    // Launch server process
+    async function startServer() {
+      const payload = {
+        name: document.getElementById('srv-name').value.trim(),
+        model: document.getElementById('srv-model-select').value,
+        port: parseInt(document.getElementById('srv-port').value),
+        host: document.getElementById('srv-host-toggle').checked ? "0.0.0.0" : "127.0.0.1",
+        ngl: parseInt(document.getElementById('srv-ngl').value),
+        c: parseInt(document.getElementById('srv-ctx').value)
+      };
+      
+      if (!payload.model) {
+        alert('Please select an installed GGUF model.');
+        return;
+      }
+      
+      try {
+        const res = await fetch('/api/servers/start', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(payload)
+        });
+        
+        if (res.ok) {
+          loadServersList();
+          document.getElementById('srv-name').value = '';
+          document.getElementById('srv-model-select').value = '';
+          
+          // Auto increment port for next suggest
+          document.getElementById('srv-port').value = payload.port + 1;
+        } else {
+          const err = await res.json();
+          alert('Failed to launch server: ' + err.detail);
+        }
+      } catch (e) {
+        alert('API connection error.');
+      }
+    }
+
+    async function stopServer(name) {
+      try {
+        const res = await fetch('/api/servers/stop', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name: name })
+        });
+        if (res.ok) {
+          loadServersList();
+        } else {
+          const err = await res.json();
+          alert('Failed to stop: ' + err.detail);
+        }
+      } catch (e) {
+        alert('API connection error.');
+      }
+    }
+
+    async function restartServer(name) {
+      try {
+        const res = await fetch('/api/servers/restart', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name: name })
+        });
+        if (res.ok) {
+          loadServersList();
+        } else {
+          const err = await res.json();
+          alert('Failed to start/restart: ' + err.detail);
+        }
+      } catch (e) {
+        alert('API connection error.');
+      }
+    }
+
+    // Tailing Logs
+    function viewServerLogs(name) {
+      srvActiveLogName = name;
+      document.getElementById('logs-panel').classList.remove('hidden');
+      document.getElementById('active-log-srv-name').innerText = name;
+      
+      const term = document.getElementById('srv-log-terminal');
+      term.innerHTML = '<div class="text-slate-500">Loading output buffers…</div>';
+      
+      if (srvLogInterval) {
+        clearInterval(srvLogInterval);
+      }
+      
+      // Immediately pull logs
+      fetchLogTail(name);
+      // Poll logs every 2 seconds
+      srvLogInterval = setInterval(() => {
+        fetchLogTail(name);
+      }, 2000);
+    }
+
+    async function fetchLogTail(name) {
+      try {
+        const res = await fetch(`/api/servers/logs/${name}?lines=100`);
+        const data = await res.json();
+        
+        const term = document.getElementById('srv-log-terminal');
+        
+        if (data.error) {
+          term.innerHTML = `<div class="text-yellow-500 font-bold">${data.error}</div>`;
+          clearInterval(srvLogInterval);
+          return;
+        }
+        
+        const hasScrolledDown = term.scrollHeight - term.clientHeight <= term.scrollTop + 50;
+        
+        term.innerHTML = '';
+        if (data.lines.length === 0) {
+          term.innerHTML = '<div class="text-slate-600">No output logs captured.</div>';
+          return;
+        }
+        
+        data.lines.forEach(line => {
+          const div = document.createElement('div');
+          div.className = "hover:bg-slate-900/40 px-1 py-0.5 rounded leading-relaxed";
+          div.innerText = line;
+          term.appendChild(div);
+        });
+        
+        // Auto scroll if user was at the bottom
+        if (hasScrolledDown) {
+          term.scrollTop = term.scrollHeight;
+        }
+      } catch (e) {
+        console.error("Failed to fetch log tail:", e);
+      }
+    }
+
+    function closeLogsPanel() {
+      document.getElementById('logs-panel').classList.add('hidden');
+      if (srvLogInterval) {
+        clearInterval(srvLogInterval);
+        srvLogInterval = null;
+      }
+      srvActiveLogName = null;
+    }
+
+    function copyLogTail() {
+      const term = document.getElementById('srv-log-terminal');
+      const text = term.innerText;
+      
+      navigator.clipboard.writeText(text).then(() => {
+        alert('Logs copied to clipboard!');
+      }, () => {
+        alert('Failed to copy logs.');
+      });
+    }
+
+    // Crash handling banner
+    async function triggerCrashNotification(name) {
+      document.getElementById('crash-banner-desc').innerText = `Instance "${name}" exited unexpectedly.`;
+      
+      // Pull last few logs lines to display in toast
+      try {
+        const res = await fetch(`/api/servers/logs/${name}?lines=8`);
+        const data = await res.json();
+        const box = document.getElementById('crash-banner-tail');
+        box.innerHTML = '';
+        
+        if (data.lines && data.lines.length > 0) {
+          data.lines.forEach(l => {
+            const line = document.createElement('div');
+            line.innerText = l;
+            box.appendChild(line);
+          });
+        } else {
+          box.innerText = "No trace captured (empty log or auto-discovered server).";
+        }
+      } catch (e) {
+        document.getElementById('crash-banner-tail').innerText = "Could not fetch log tail.";
+      }
+      
+      const banner = document.getElementById('crash-banner');
+      banner.classList.remove('translate-y-20', 'opacity-0');
+    }
+
+    function dismissCrash() {
+      const banner = document.getElementById('crash-banner');
+      banner.classList.add('translate-y-20', 'opacity-0');
+    }
+
+    // Network & LAN IP Information
+    async function loadNetworkInfo() {
+      try {
+        const res = await fetch('/api/network/info');
+        const data = await res.json();
+        
+        const ipList = document.getElementById('lan-ip-list');
+        ipList.innerHTML = '';
+        
+        data.lan_ips.forEach(ip => {
+          const div = document.createElement('div');
+          div.className = "flex items-center justify-between p-3.5 rounded-xl glass-light border border-slate-800/80";
+          div.innerHTML = `
+            <div>
+              <span class="text-xs text-slate-500 font-bold uppercase tracking-wider block mb-0.5">LAN IP Address</span>
+              <span class="mono font-bold text-white text-sm">${ip}</span>
+            </div>
+            <button onclick="navigator.clipboard.writeText('${ip}').then(() => alert('IP copied!'))" class="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 font-bold text-slate-300 text-[10px] rounded transition-colors">Copy</button>
+          `;
+          ipList.appendChild(div);
+        });
+        
+        // Render registration links dynamically
+        const srvRes = await fetch('/api/servers');
+        const servers = await srvRes.json();
+        
+        const endpointsDiv = document.getElementById('endpoint-copy-list');
+        const exposedServers = servers.filter(s => s.host === '0.0.0.5' || s.host === '0.0.0.0' && s.status === 'running');
+        
+        if (exposedServers.length === 0) {
+          endpointsDiv.innerHTML = `
+            <div class="text-slate-500 text-xs text-center py-10">
+              No servers are running on 0.0.0.0. Bind a server to 0.0.0.0 to generate network integration endpoints.
+            </div>
+          `;
+          return;
+        }
+        
+        endpointsDiv.innerHTML = '';
+        exposedServers.forEach(s => {
+          data.lan_ips.forEach(ip => {
+            const url = `http://${ip}:${s.port}`;
+            const registerPayload = JSON.stringify({ name: s.name, base_url: url });
+            
+            const card = document.createElement('div');
+            card.className = "p-4 rounded-xl border border-slate-800/80 bg-slate-950/20 space-y-3";
+            card.innerHTML = `
+              <div class="flex justify-between items-center">
+                <span class="text-xs font-bold text-indigo-400">${s.name} (${url})</span>
+                <span class="text-[9px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded font-bold uppercase">Ready</span>
+              </div>
+              <div class="space-y-2">
+                <div>
+                  <span class="text-[9px] text-slate-500 uppercase tracking-wider block mb-1">Base Connection URL</span>
+                  <div class="flex gap-2">
+                    <input readonly value="${url}" class="flex-1 font-mono text-xs bg-black/40 border border-slate-800 p-1.5 rounded text-slate-300 select-all focus:outline-none">
+                    <button onclick="navigator.clipboard.writeText('${url}').then(() => alert('Copied endpoint URL!'))" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-bold rounded">Copy</button>
+                  </div>
+                </div>
+                <div>
+                  <span class="text-[9px] text-slate-500 uppercase tracking-wider block mb-1">ADRA API Register Payload</span>
+                  <div class="flex gap-2">
+                    <input readonly value='${registerPayload}' class="flex-1 font-mono text-[10px] bg-black/40 border border-slate-800 p-1.5 rounded text-slate-400 select-all focus:outline-none">
+                    <button onclick="navigator.clipboard.writeText('${registerPayload}').then(() => alert('Copied register JSON!'))" class="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-[10px] font-bold rounded">Copy</button>
+                  </div>
+                </div>
+              </div>
+            `;
+            endpointsDiv.appendChild(card);
+          });
+        });
+        
+        // Auto fill tester box
+        if (servers.length > 0 && !document.getElementById('test-endpoint-url').value) {
+          const runSrv = servers.find(s => s.status === 'running');
+          if (runSrv) {
+            document.getElementById('test-endpoint-url').value = `http://127.0.0.1:${runSrv.port}`;
+          }
+        }
+      } catch (e) {
+        console.error("Failed to load network info:", e);
+      }
+    }
+
+    // Connection Tester
+    async function testConnection() {
+      const url = document.getElementById('test-endpoint-url').value.trim();
+      if (!url) return;
+      
+      const box = document.getElementById('test-result-box');
+      box.className = "mt-3 p-3 rounded-lg text-xs font-medium font-mono bg-slate-900 text-slate-400";
+      box.innerText = "Sending GET query to /models endpoint…";
+      box.classList.remove('hidden');
+      
+      try {
+        // Fetch to backend models or direct proxy check
+        // To avoid CORS blocks from browser, we connect using fetch with a short timeout
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), 3000);
+        
+        // Using /models since llama-server exposes this
+        const res = await fetch(`${url}/models`, { signal: controller.signal });
+        clearTimeout(id);
+        
+        if (res.ok) {
+          const data = await res.json();
+          const modelName = data.data && data.data[0] ? data.data[0].id : 'unknown';
+          box.className = "mt-3 p-3 rounded-lg text-xs font-medium font-mono bg-green-500/10 text-green-400 border border-green-500/20";
+          box.innerText = `Success: Endpoint responding.\nServing Model: ${modelName}`;
+        } else {
+          box.className = "mt-3 p-3 rounded-lg text-xs font-medium font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20";
+          box.innerText = `Failed: Responded with status code ${res.status}`;
+        }
+      } catch (e) {
+        box.className = "mt-3 p-3 rounded-lg text-xs font-medium font-mono bg-rose-500/10 text-rose-400 border border-rose-500/20";
+        box.innerText = `Error: Connection failed. Endpoint is offline or port is blocked by firewall.`;
+      }
+    }
+
+    // Uptime formatter helper
+    function formatUptime(secs) {
+      if (!secs) return "--:--";
+      const h = Math.floor(secs / 3600);
+      const m = Math.floor((secs % 3600) / 60);
+      const s = secs % 60;
+      if (h > 0) {
+        return `${h}h ${m}m ${s}s`;
+      }
+      return `${m}m ${s}s`;
+    }
+  </script>
+</body>
+</html>

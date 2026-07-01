@@ -10,6 +10,40 @@ from pathlib import Path
 import yaml
 from adra_common import TokenCounter, call_llm as call_llamacpp, write_json, set_model_override
 
+
+def _parse_version(text: str) -> tuple[int, ...] | None:
+    """Extract the first dotted version number (e.g. '14.0.0', '3.25') from check_cmd output."""
+    if not text:
+        return None
+    match = re.search(r"(\d+(?:\.\d+){0,3})", text)
+    if not match:
+        return None
+    try:
+        return tuple(int(p) for p in match.group(1).split("."))
+    except ValueError:
+        return None
+
+
+def version_satisfies(found_text: str, required_text: str | None) -> bool:
+    """
+    Compare a found version string (from check_cmd output) against a required
+    minimum version (from inventory.json). Returns True if found >= required,
+    or if either side can't be parsed as a version (fail open — don't block
+    on a comparison we can't make confidently; the inventory gap table is the
+    source of truth for whether this item even needs attention).
+    """
+    if not required_text:
+        return True
+    found = _parse_version(found_text)
+    required = _parse_version(str(required_text))
+    if found is None or required is None:
+        return True
+    # Pad to equal length for tuple comparison
+    length = max(len(found), len(required))
+    found_padded = found + (0,) * (length - len(found))
+    required_padded = required + (0,) * (length - len(required))
+    return found_padded >= required_padded
+
 # ==========================================
 # 1. Configuration
 # ==========================================
@@ -483,6 +517,7 @@ def install_package(
     conn: sqlite3.Connection,
     session_id: str,
     sudo_password: str | None,
+    required_version: str | None = None,
 ) -> str:
     """
     Install one package end-to-end.
@@ -493,16 +528,23 @@ def install_package(
     print(f"│  📦  {pkg_name}  —  {skill['description']:<40}│")
     print(f"└{sep}┘")
 
-    # Pre-flight: is it already present?
+    # Pre-flight: is it already present AND does it satisfy the required version?
     check_cmd = skill.get("check_cmd", "")
     if check_cmd:
         # Check commands never need sudo — just testing if binary is in PATH
         exit_code, output = execute_ssh(client, check_cmd, sudo_password=None)
         if exit_code == 0:
-            print(f"  [Already installed] {output}")
-            log_event(conn, session_id, "packages_agent", "check",
-                      pkg_name, 0, output, exit_code, "already_installed")
-            return "already_installed"
+            if version_satisfies(output, required_version):
+                print(f"  [Already installed] {output}")
+                log_event(conn, session_id, "packages_agent", "check",
+                          pkg_name, 0, output, exit_code, "already_installed")
+                return "already_installed"
+            else:
+                print(f"  [Version insufficient] found={output.strip()!r} "
+                      f"required>={required_version!r} — proceeding to upgrade.")
+                log_event(conn, session_id, "packages_agent", "check",
+                          pkg_name, 0, f"found={output.strip()!r} required>={required_version!r}",
+                          exit_code, "insufficient_proceeding_to_upgrade")
 
     install_cmds = get_install_commands(skill, os_flavor)
     if not install_cmds:
@@ -783,7 +825,8 @@ def run(context: dict | None = None) -> dict:
 
             result = install_package(
                 client, pkg_name, skill, os_flavor,
-                conn, session_id, sudo_password
+                conn, session_id, sudo_password,
+                required_version=inv_item.get("required"),
             )
             results[pkg_name] = result
             
@@ -807,7 +850,8 @@ def run(context: dict | None = None) -> dict:
                 continue
             result = install_package(
                 client, pkg_name, skill, os_flavor,
-                conn, session_id, sudo_password
+                conn, session_id, sudo_password,
+                required_version=inv_item.get("required"),
             )
             results[pkg_name] = result
             if result in ("success", "already_installed"):

@@ -364,7 +364,13 @@ def run(context: dict | None = None) -> dict:
     source_doc_sha = None
     if context.get("document_path"):
         source_doc_sha = ingest_text_document(context["document_path"])
-        source = f"upload:{os.path.basename(context['document_path'])}:{source_doc_sha[:8]}"
+        # IMPORTANT: store the FULL sha256, not a truncated prefix.
+        # installer_agent.py later re-derives doc_sha from this string to filter
+        # ChromaDB by exact metadata match — truncating it here breaks that match
+        # (ChromaDB 'where' filters are exact-equality, not prefix), causing
+        # installer_agent to silently retrieve zero context chunks and fall back
+        # to a fully hallucinated install pipeline (e.g. example.com placeholder URLs).
+        source = f"upload:{os.path.basename(context['document_path'])}:{source_doc_sha}"
     else:
         ingest_documents()
         source = "docs"

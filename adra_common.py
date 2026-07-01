@@ -14,6 +14,61 @@ LLAMACPP_URL = os.getenv("ADRA_LLAMACPP_URL", "http://localhost:8080/v1/chat/com
 PROFILES_DB_PATH = os.getenv("ADRA_PROFILES_DB", "requirement_profiles.db")
 TOKEN_LISTENER: Callable[[dict[str, int]], None] | None = None
 
+# ── Multi-model endpoint registry ────────────────────────────────────────────
+# llama-server loads exactly ONE gguf per process, so "switching models" in the
+# UI means switching which llama-server *instance* (port/URL) requests go to —
+# not picking from a list of models on a single server.
+#
+# Run one llama-server per model on different ports, e.g.:
+#   llama-server -m qwen2.5-7b-instruct-q4_k_m.gguf --port 8080
+#   llama-server -m qwen3-14b-instruct-q4_k_m.gguf  --port 8081
+#
+# Then register them here (or via ADRA_MODEL_ENDPOINTS env var, JSON format):
+#   export ADRA_MODEL_ENDPOINTS='{"qwen2.5-7b": "http://localhost:8080", "qwen3-14b": "http://localhost:8081"}'
+_DEFAULT_ENDPOINTS = {
+    "default": LLAMACPP_URL.rsplit("/v1/", 1)[0],
+}
+try:
+    _env_endpoints = json.loads(os.getenv("ADRA_MODEL_ENDPOINTS", "{}"))
+    if isinstance(_env_endpoints, dict) and _env_endpoints:
+        _DEFAULT_ENDPOINTS = _env_endpoints
+except (json.JSONDecodeError, TypeError):
+    pass
+
+MODEL_ENDPOINTS: dict[str, str] = dict(_DEFAULT_ENDPOINTS)  # name -> base_url (no /v1/...)
+_ACTIVE_ENDPOINT_NAME: str = next(iter(MODEL_ENDPOINTS))  # defaults to first registered
+
+
+def list_model_endpoints() -> dict[str, Any]:
+    """Returns all registered (name -> base_url) endpoints plus which is active."""
+    return {"endpoints": MODEL_ENDPOINTS, "active": _ACTIVE_ENDPOINT_NAME}
+
+
+def register_model_endpoint(name: str, base_url: str) -> None:
+    """Add or update a named llama-server endpoint at runtime."""
+    MODEL_ENDPOINTS[name] = base_url.rstrip("/")
+
+
+def select_model_endpoint(name: str) -> bool:
+    """Switch which registered endpoint subsequent call_llm() calls use. Returns False if unknown name."""
+    global _ACTIVE_ENDPOINT_NAME
+    if name not in MODEL_ENDPOINTS:
+        return False
+    _ACTIVE_ENDPOINT_NAME = name
+    global _DISCOVERED_MODEL
+    _DISCOVERED_MODEL = None  # force re-discovery against the new endpoint
+    return True
+
+
+def active_llamacpp_url() -> str:
+    """The /v1/chat/completions URL for the currently selected endpoint."""
+    base = MODEL_ENDPOINTS.get(_ACTIVE_ENDPOINT_NAME, LLAMACPP_URL.rsplit("/v1/", 1)[0])
+    return f"{base}/v1/chat/completions"
+
+
+def active_base_url() -> str:
+    return MODEL_ENDPOINTS.get(_ACTIVE_ENDPOINT_NAME, LLAMACPP_URL.rsplit("/v1/", 1)[0])
+
 _DISCOVERED_MODEL = None
 _MODEL_OVERRIDE = None
 
@@ -28,7 +83,7 @@ def discover_model() -> str:
     if _DISCOVERED_MODEL is not None and not _MODEL_OVERRIDE:
         return _DISCOVERED_MODEL
 
-    base_url = LLAMACPP_URL.split("/chat/completions")[0]
+    base_url = active_base_url()
     models_url = f"{base_url}/models"
     
     try:
@@ -138,7 +193,7 @@ def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 900
         "temperature": 0.2,
     }
     try:
-        response = requests.post(LLAMACPP_URL, json=payload, timeout=timeout)
+        response = requests.post(active_llamacpp_url(), json=payload, timeout=timeout)
         response.raise_for_status()
         data = response.json()
         usage = data.get("usage", {"prompt_tokens": 0, "completion_tokens": 0})

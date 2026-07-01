@@ -12,7 +12,16 @@ import installer_agent
 import inventory_agent
 import packages_agent
 import requirements_agent
-from adra_common import list_requirement_profiles, set_token_listener, LLAMACPP_URL
+from adra_common import (
+    list_requirement_profiles,
+    set_token_listener,
+    LLAMACPP_URL,
+    list_model_endpoints,
+    register_model_endpoint,
+    select_model_endpoint,
+    active_base_url,
+    discover_model,
+)
 import requests
 
 import sys
@@ -71,36 +80,79 @@ def profiles() -> dict[str, list[str]]:
 
 @app.get("/api/health")
 def llm_health() -> dict[str, Any]:
-    base_url = LLAMACPP_URL.split("/chat/completions")[0]
+    base_url = active_base_url()
     health_url = f"{base_url}/health"
     try:
         resp = requests.get(health_url, timeout=2)
         resp.raise_for_status()
-        return {"status": "ok", "message": "LLM backend is healthy and responding."}
+        return {"status": "ok", "message": "LLM backend is healthy and responding.", "base_url": base_url}
     except Exception as e:
         # Fallback to checking models if /health doesn't exist
         models_url = f"{base_url}/models"
         try:
             resp = requests.get(models_url, timeout=2)
             resp.raise_for_status()
-            return {"status": "ok", "message": "LLM backend is accessible (models endpoint OK)."}
+            return {"status": "ok", "message": "LLM backend is accessible (models endpoint OK).", "base_url": base_url}
         except Exception as e2:
-            return {"status": "error", "message": str(e2)}
+            return {"status": "error", "message": str(e2), "base_url": base_url}
 
 
 @app.get("/api/models")
-def get_models() -> dict[str, list[str]]:
-    base_url = LLAMACPP_URL.split("/chat/completions")[0]
-    models_url = f"{base_url}/models"
+def get_models() -> dict[str, Any]:
+    """
+    Lists every registered llama-server endpoint (name -> base_url), which one
+    is currently active, and the model ID each endpoint reports (if reachable).
+    Each entry in MODEL_ENDPOINTS is a SEPARATE llama-server process — since
+    llama-server only loads one gguf per process, "switching models" means
+    switching which registered endpoint requests go to.
+    """
+    registry = list_model_endpoints()
+    endpoints_detail = []
+    for name, base_url in registry["endpoints"].items():
+        entry = {"name": name, "base_url": base_url, "reachable": False, "model_id": None}
+        try:
+            resp = requests.get(f"{base_url}/models", timeout=2)
+            resp.raise_for_status()
+            data = resp.json().get("data", [])
+            entry["reachable"] = True
+            entry["model_id"] = data[0]["id"] if data else "unknown"
+        except Exception as e:
+            entry["error"] = str(e)
+        endpoints_detail.append(entry)
+
+    return {"endpoints": endpoints_detail, "active": registry["active"]}
+
+
+class RegisterEndpointRequest(BaseModel):
+    name: str
+    base_url: str  # e.g. "http://192.168.1.50:8081" — no /v1/... suffix
+
+
+@app.post("/api/models/register")
+def register_endpoint(payload: RegisterEndpointRequest) -> dict[str, Any]:
+    """Add a new llama-server endpoint to the registry (e.g. a second model on another port/machine)."""
+    register_model_endpoint(payload.name, payload.base_url)
+    return {"status": "ok", "endpoints": list_model_endpoints()}
+
+
+class ModelSelectRequest(BaseModel):
+    name: str  # the registry name, not the model id
+
+
+@app.post("/api/models/select")
+def select_model(payload: ModelSelectRequest) -> dict[str, Any]:
+    """Switch which registered endpoint subsequent agent runs send LLM calls to."""
+    ok = select_model_endpoint(payload.name)
+    if not ok:
+        return {"status": "error", "error": f"No endpoint registered as '{payload.name}'.",
+                "endpoints": list_model_endpoints()}
+    # Confirm it's actually reachable + report what model it's serving
+    base = active_base_url()
     try:
-        resp = requests.get(models_url, timeout=2)
-        resp.raise_for_status()
-        data = resp.json()
-        models = data.get("data", [])
-        return {"models": [m["id"] for m in models]}
+        model = discover_model()
     except Exception as e:
-        print(f"Failed to fetch models: {e}")
-        return {"models": ["mock-model"]}
+        model = None
+    return {"status": "ok", "active": payload.name, "base_url": base, "model": model}
 
 
 @app.post("/api/requirements/run")

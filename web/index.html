@@ -778,14 +778,41 @@
         localStorage.setItem('adra_pass', config.pass);
       }, [config.host, config.user, config.pass]);
 
-      useEffect(() => {
+      // Refresh the registered llama-server endpoints (one per model, since
+      // llama-server only loads one gguf per process). Call on mount and
+      // exposed via refreshModels() so the LLM-status indicator can re-poll.
+      const refreshModels = () => {
         fetch('/api/models').then(r => r.json()).then(d => {
-          if (d.models && d.models.length > 0) {
-            setModels(d.models);
-            setConfig(prev => ({ ...prev, model: d.models.includes('gemma4:e2b') ? 'gemma4:e2b' : d.models[0] }));
+          const eps = d.endpoints || [];
+          setModels(eps);
+          if (eps.length > 0) {
+            const active = eps.find(e => e.name === d.active) || eps[0];
+            setConfig(prev => ({ ...prev, model: active.name }));
           }
         }).catch(e => console.error("Error fetching models:", e));
-      }, []);
+      };
+
+      useEffect(() => { refreshModels(); }, []);
+
+      // When the user picks a different registered endpoint from the dropdown,
+      // tell the backend to actually route subsequent LLM calls there.
+      const selectModel = async (name) => {
+        updateConfig('model', name);
+        try {
+          const res = await fetch('/api/models/select', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name })
+          });
+          const data = await res.json();
+          if (data.status !== 'ok') {
+            alert('Could not switch model: ' + (data.error || 'unknown error'));
+          }
+          refreshModels();
+        } catch (e) {
+          alert('Failed to reach backend to switch model.');
+        }
+      };
 
 
       useEffect(() => {
@@ -825,19 +852,33 @@
       }, []);
 
 
-      const checkLlmHealth = async () => {
+      const [llmHealth, setLlmHealth] = useState({ status: 'unknown', message: '', base_url: '' });
+
+      const checkLlmHealth = async (silent) => {
         try {
           const res = await fetch('/api/health');
           const data = await res.json();
-          if (data.status === 'ok') {
-            alert('✅ Success: ' + data.message);
-          } else {
-            alert('❌ Error: ' + data.message);
+          setLlmHealth(data);
+          if (!silent) {
+            if (data.status === 'ok') {
+              alert(`✅ ${data.message}\nEndpoint: ${data.base_url}`);
+            } else {
+              alert(`❌ ${data.message}\nEndpoint: ${data.base_url}`);
+            }
           }
         } catch (e) {
-          alert('Failed to connect to backend for health check.');
+          setLlmHealth({ status: 'error', message: 'Backend unreachable', base_url: '' });
+          if (!silent) alert('Failed to connect to backend for health check.');
         }
       };
+
+      // Poll silently every 8s so the footer dot stays accurate without
+      // needing the user to click the button.
+      useEffect(() => {
+        checkLlmHealth(true);
+        const id = setInterval(() => checkLlmHealth(true), 8000);
+        return () => clearInterval(id);
+      }, []);
 
       useEffect(() => {
         window.updateTokens = (usage) => {
@@ -881,6 +922,24 @@
                 <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></span>
                 ADRA <span className="font-normal text-slate-400 ml-1">Command Center</span>
               </h1>
+              <button
+                onClick={() => checkLlmHealth(false)}
+                title={llmHealth.base_url ? `Endpoint: ${llmHealth.base_url}` : 'Click to check'}
+                className="flex items-center gap-2 text-xs px-3 py-1 rounded-full border transition-colors"
+                style={{
+                  borderColor: llmHealth.status === 'ok' ? '#10b981' : llmHealth.status === 'error' ? '#f43f5e' : '#475569',
+                  color: llmHealth.status === 'ok' ? '#10b981' : llmHealth.status === 'error' ? '#f43f5e' : '#94a3b8'
+                }}
+              >
+                <span
+                  className="w-1.5 h-1.5 rounded-full"
+                  style={{
+                    backgroundColor: llmHealth.status === 'ok' ? '#10b981' : llmHealth.status === 'error' ? '#f43f5e' : '#64748b',
+                    animation: llmHealth.status === 'unknown' ? 'pulse 1.5s infinite' : 'none'
+                  }}
+                ></span>
+                {llmHealth.status === 'ok' ? `LLM online · ${config.model}` : llmHealth.status === 'error' ? 'LLM offline' : 'Checking LLM…'}
+              </button>
             </div>
             <nav className="px-6 flex gap-1">
               {tabs.map(tab => (
@@ -938,11 +997,30 @@
                     <input type="password" value={config.pass} onChange={e => updateConfig('pass', e.target.value)} className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 focus:border-teal-500 focus:outline-none" />
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Ollama Model</label>
-                    <select value={config.model} onChange={e => updateConfig('model', e.target.value)} className="w-full text-sm border border-slate-300 rounded px-2 py-1.5 bg-green-500 text-white font-medium focus:outline-none">
-                      {models.map(m => <option key={m} value={m} className="bg-white text-slate-800">{m}</option>)}
+                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center justify-between">
+                      <span>Active Model</span>
+                      <button onClick={refreshModels} className="text-teal-600 hover:text-teal-800 text-[10px] font-normal">refresh</button>
+                    </label>
+                    <select
+                      value={config.model}
+                      onChange={e => selectModel(e.target.value)}
+                      className={`w-full text-sm border border-slate-300 rounded px-2 py-1.5 font-medium focus:outline-none ${
+                        models.find(m => m.name === config.model)?.reachable ? 'bg-green-500 text-white' : 'bg-rose-500 text-white'
+                      }`}
+                    >
+                      {models.map(m => (
+                        <option key={m.name} value={m.name} className="bg-white text-slate-800">
+                          {m.name} {m.reachable ? `(${m.model_id})` : '— unreachable'}
+                        </option>
+                      ))}
                       {models.length === 0 && <option value="mock-model">mock-model</option>}
                     </select>
+                    {models.length <= 1 && (
+                      <p className="text-[10px] text-slate-400 mt-1 leading-snug">
+                        Only one endpoint registered. To switch between models, run a second
+                        llama-server on another port and register it via POST /api/models/register.
+                      </p>
+                    )}
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-slate-500 mb-1">Collection Scope</label>
