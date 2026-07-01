@@ -1,0 +1,9 @@
+description: C++ front-end for Clang
+check_cmd: which clang++
+install:
+  ubuntu:
+  - sudo apt-get update -y
+  - sudo apt-get install -y clang
+  rhel:
+  - sudo yum install -y clang
+verify_cmd: clang++ --version

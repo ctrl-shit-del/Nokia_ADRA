@@ -1,0 +1,9 @@
+description: cURL - command line tool for transferring data
+check_cmd: curl --version 2>&1
+install:
+  ubuntu:
+  - sudo apt-get update -y
+  - sudo apt-get install -y curl
+  rhel:
+  - sudo yum install -y curl
+verify_cmd: curl --version 2>&1 | head -n 1

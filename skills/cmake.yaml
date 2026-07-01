@@ -1,0 +1,10 @@
+description: CMake is a cross-platform free software tool used to control the build
+  process and compile software
+check_cmd: cmake --version
+install:
+  ubuntu:
+  - sudo apt-get update -y
+  - sudo apt-get install -y cmake
+  rhel:
+  - sudo yum install -y cmake
+verify_cmd: cmake --version

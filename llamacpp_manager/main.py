@@ -16,6 +16,7 @@ import psutil
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 # Configuration
@@ -788,7 +789,6 @@ if STATIC_DIR.exists():
 
 @app.get("/")
 def get_index() -> FileResponse:
-    from fastapi.responses import FileResponse
     return FileResponse(STATIC_DIR / "index.html")
 
 if __name__ == "__main__":

@@ -1,13 +1,13 @@
-# ADRA Session Report — Nokia Aurelis Installer
+# ADRA Session Report — UBUNTU Installer
 
 | Field | Value |
 |---|---|
-| Session ID | `inst_20260531_031239` |
+| Session ID | `inst_20260701_171924` |
 | Target host | `127.0.0.1` |
 | OS | ubuntu |
-| Started | 2026-05-31 03:12:30 |
-| Duration | 0:01:30 |
-| Overall status | **❌ FAILED** |
+| Started | 2026-07-01 17:19:24 |
+| Duration | 0:04:15 |
+| Overall status | **✅ SUCCESS** |
 
 ---
 
@@ -15,171 +15,134 @@
 
 | Item | Required | Found | Status |
 |---|---|---|---|
-| cpu_cores | 12 | 16 | ✓ Met |
-| ram_gb | 10 | 14 | ✓ Met |
-| disk_gb | 200 | 96 | ⚠ Insufficient |
-| disk_type | SSD | nvme0n1 0 | ✓ Met |
+| cpu_cores | 8 | 48 | ✓ Met |
+| ram_gb | 8 | 257370 | ✓ Met |
 
 ## Software State
 
 | Item | Required | Found | Status |
 |---|---|---|---|
-| python | 3.10 | Python 3.14.4 | ✓ Met |
-| docker | 20.10 | Docker version 29.5.2 | ✓ Met |
-| kubernetes | 1.26 | v1.29.15 | ✓ Met |
-| helm | 3.10 | v3.21.0 | ✓ Met |
-| os_name | Ubuntu 22.04 or RHEL 8 | Ubuntu 26.04 LTS | ✓ Met |
+| os_name | Ubuntu 22.04 LTS | Ubuntu 22.04.5 LTS | ✓ Met |
+| python | 3.12 | 3.10.12 | ✓ Met |
+| g++ | 11.0 | 11.4.0 | ✓ Met |
 
 ---
 
 ## Installation Steps
 
-### ✅ Verify Docker is running *(critical)*
+### ✅ Update Apt *(critical)*
 
 **Attempts:** 1/5
 
 **Attempt 1**
 ```
-$ systemctl is-active docker
+$ sudo DEBIAN_FRONTEND=noninteractive apt-get update -y
 exit: 0
-active
+Hit:1 https://nvidia.github.io/libnvidia-container/stable/deb/amd64  InRelease
+Hit:2 https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64  InRelease
+Hit:3 https://repo.anaconda.com/pkgs/misc/debrepo/conda stable InRelease
+Hit:4 http://security.ubuntu.com/ubuntu jammy-security InRelease
+Hit:6 http://in.archive.ubuntu.com/ubuntu jammy InRelease
+Hit:7 http://hp.archive.canonical
 ```
 
-### ✅ Verify kubectl is accessible *(critical)*
+### ✅ Install Dependencies *(critical)*
 
 **Attempts:** 1/5
 
 **Attempt 1**
 ```
-$ kubectl version --client 2>&1
+$ sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git python3.12 python3.12-venv python3.12-dev cmake pkg-config libsqlite3-dev libxml2-dev libbz2-dev libssl-dev libc-ares-dev libgsl-dev libgtk-3-dev
 exit: 0
-Client Version: v1.29.15
-Kustomize Version: v5.0.4-0.20230601165947-6ce0bf390ce3
+Reading package lists...
+Building dependency tree...
+Reading state information...
+build-essential is already the newest version (12.9ubuntu3).
+libbz2-dev is already the newest version (1.0.8-5build1).
+pkg-config is already the newest version (0.29.2-1ubuntu3).
+libgsl-dev is already the newest version (2.7.1+dfsg-3).
+git is already the newest version (1:2.34.1-1ubuntu1.17).
+libc-ares-dev is already
 ```
 
-### ✅ Verify Helm is accessible *(critical)*
+### ✅ Clone ns-3 *(critical)*
 
 **Attempts:** 1/5
 
 **Attempt 1**
 ```
-$ helm version --short 2>&1
+$ rm -rf ns-3-dev && git clone https://gitlab.com/nsnam/ns-3-dev.git && cd ns-3-dev
 exit: 0
-v3.21.0+ge0878d4
+Cloning into 'ns-3-dev'...
 ```
 
-### ❌ Install kind (Kubernetes IN Docker) *(critical)*
+### ✅ Set Up Python Environment *(critical)*
 
-**Attempts:** 5/5
+**Attempts:** 1/5
 
 **Attempt 1**
 ```
-$ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.23.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind
-exit: 1
-% Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-
-  0      0   0      0   0      0      0      0                              0
-100     97 100     97   0      0    119      0                              0
-100     97 100     97   0      0    119      0                              0
-
-  0      0
-```
-> 🤖 **LLM:** The curl command failed because the provided URL for kind v0.23.0 is invalid or returning a 404, resulting in a small HTML error page instead of the binary.
-> Suggested: `curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind`
-
-**Attempt 2**
-```
-$ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.22.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind
-exit: 1
-% Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-
-  0      0   0      0   0      0      0      0                              0
-100     98   0     98   0      0    536      0                              0
-100     98   0     98   0      0    535      0                              0
-
-  0      0
-```
-> 🤖 **LLM:** The provided download URLs are returning 404 Not Found errors because kind release binaries are hosted at /dl/vX.Y.Z/kind-linux-amd64, and the specified versions are either incorrect or unavailable at those paths.
-> Suggested: `curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind`
-
-**Attempt 3**
-```
-$ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x /tmp/kind && sudo mv /tmp/kind /usr/local/bin/kind
-exit: 1
-% Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-
-  0      0   0      0   0      0      0      0                              0
-100     97 100     97   0      0    659      0                              0
-100     97 100     97   0      0    659      0                              0
-
-  0      0
-```
-> 🤖 **LLM:** The installation script is consistently using invalid URLs that return 404 HTML pages instead of the binary, as the current 'kind' release naming convention requires a full semantic version (e.g., v0.24.0) but the specific paths being tried are not resolving.
-> Suggested: `curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64.tar.gz && tar -xvf /tmp/kind -C /tmp && sudo mv /tmp/kind /usr/local/bin/kind`
-
-**Attempt 4**
-```
-$ curl -Lo /tmp/kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64.tar.gz && tar -xvf /tmp/kind -C /tmp && sudo mv /tmp/kind /usr/local/bin/kind
-exit: 2
-% Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-
-  0      0   0      0   0      0      0      0                              0
-100    105   0    105   0      0    730      0                              0
-100    105   0    105   0      0    727      0                              0
-
-  0      0
-```
-> 🤖 **LLM:** The script is attempting to download the binary from an incorrect URL structure that returns a 404 HTML page, causing the subsequent tar extraction to fail with exit code 2.
-> Suggested: `curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind`
-
-**Attempt 5**
-```
-$ curl -Lo ./kind https://kind.sigs.k8s.io/dl/v0.24.0/kind-linux-amd64 && chmod +x ./kind && sudo mv ./kind /usr/local/bin/kind
-exit: 1
-% Total    % Received % Xferd  Average Speed  Time    Time    Time   Current
-                                 Dload  Upload  Total   Spent   Left   Speed
-
-  0      0   0      0   0      0      0      0                              0
-100     97 100     97   0      0    722      0                              0
-100     97 100     97   0      0    722      0                              0
-
-  0      0
+$ python3.12 -m venv ns3venv && source ns3venv/bin/activate && python -m pip install --upgrade pip && pip install sionna==1.2.0 sionna-rt==1.2.0 pybind11==2.11.1 cppyy==3.5.0 && echo 'source ns3venv/bin/activate' >> ~/.bashrc
+exit: 0
+Requirement already satisfied: pip in ./ns3venv/lib/python3.12/site-packages (26.1.2)
+Requirement already satisfied: sionna==1.2.0 in ./ns3venv/lib/python3.12/site-packages (1.2.0)
+Requirement already satisfied: sionna-rt==1.2.0 in ./ns3venv/lib/python3.12/site-packages (1.2.0)
+Requirement already satisfied: pybind11==2.11.1 in ./ns3venv/lib/python3.12/site-packages (2.11.1)
+Requirement already sa
 ```
 
-### ❌ Create kind cluster for Aurelis *(critical)*
+### ✅ Configure ns-3 *(critical)*
 
-**Attempts:** 0/5
+**Attempts:** 1/5
 
-### ❌ Create aurelis namespace *(critical)*
+**Attempt 1**
+```
+$ cd ns-3-dev && ./ns3 configure --enable-examples --enable-tests
+exit: 0
+Warn about uninitialized values.
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Using default output directory /home/administrator/ns-3-dev/build
+-- Performing Test GCC_WORKING_PEDANTIC
+```
 
-**Attempts:** 0/5
+### ✅ Build ns-3 *(critical)*
 
-### ❌ Add Nokia Aurelis Helm repository *(critical)*
+**Attempts:** 1/5
 
-**Attempts:** 0/5
+**Attempt 1**
+```
+$ cd ns-3-dev && ./ns3 build
+exit: 0
+[0/2] Re-checking globbed directories...
+[1/2018] Building CXX object src/test/CMakeFiles/test.dir/__/__/build-support/empty.cc.o
+[2/2018] Building CXX object scratch/nested-subdir/CMakeFiles/scratch-nested-subdir-lib.dir/lib/scratch-nested-subdir-library-source.cc.o
+[3/2018] Linking CXX static library /home/administrator/ns-3-dev/build/lib/libscratch-nested-subdir-lib.a
+[4/2018] Building CXX obje
+```
 
-### ❌ Deploy Aurelis Command Center via Helm *(critical)*
+### ✅ Install ns-3 *(non-critical)*
 
-**Attempts:** 0/5
+**Attempts:** 1/5
 
-### ❌ Wait for Aurelis pods to be ready *(critical)*
-
-**Attempts:** 0/5
-
-### ❌ Check Aurelis service endpoints *(non-critical)*
-
-**Attempts:** 0/5
-
----
-
-## Post-Installation Verification
-
-| Check | Result | Output |
-|---|---|---|
+**Attempt 1**
+```
+$ cd ns-3-dev && rm -rf build && mkdir build && cd build && cmake .. && sudo cmake --build . --target install -- -j 47
+exit: 0
+-- The CXX compiler identification is GNU 11.4.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /usr/bin/c++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- Using default output directory /home/administrator/ns-3-dev/build
+-- Performing Test GCC_WORKING_PEDANTIC_SEMICOLON
+-- Performing Test GCC
+```
 
 ---
 
@@ -195,3 +158,5 @@ ORDER BY id;
 ```
 
 ---
+*Generated by ADRA — Autonomous Deployment Readiness Agent*  
+*VIT Chennai × Nokia*

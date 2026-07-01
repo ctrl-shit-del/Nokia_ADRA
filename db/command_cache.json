@@ -1,0 +1,19 @@
+{
+    "Ubuntu 22.04.5 LTS": {
+        "os_name": "hostnamectl",
+        "cpu_cores": "lscpu | grep -E '^CPU\\('",
+        "ram_gb": "free -m | awk 'NR==2{print $2}'",
+        "disk_gb": "df -h",
+        "disk_type": "lsblk -o NAME,FSTYPE,SIZE,MOUNTPOINT,LABEL",
+        "python": "python3 --version",
+        "docker": "docker --version",
+        "helm": "helm version",
+        "compiler": "gcc --version",
+        "build_system": "dpkg-query -l | grep -E 'cmake|make|ninja'",
+        "version_control": "git --version",
+        "curl": "which curl",
+        "g++": "g++ --version",
+        "cmake": "cmake --version",
+        "clang++": "clang++ --version"
+    }
+}

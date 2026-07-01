@@ -1,0 +1,107 @@
+description: Installer learned fixes
+learned_fixes:
+- matched_error: 'Error: looks like "https://charts.nokia.com/aurelis" is not a valid
+    chart repository or cannot be reached: Get "https://charts.nokia.com/aurelis/index.yaml":
+    di'
+  os: ubuntu
+  original_command: helm repo add nokia https://charts.nokia.com/aurelis && helm repo
+    update
+  fixed_command: docker ps --all | grep kind- | awk '{print $1}' | xargs -I {} docker
+    exec -it {} bash -c 'echo "nameserver 8.8.8.8" > /etc/resolv.conf'
+  learned_at: '2026-06-23T16:21:26.941955'
+  confidence: 0.9
+- matched_error: 'bash: line 1: /usr/share/keyrings/ros2-archive-keyring.gpg: Permission
+    denied'
+  os: ubuntu
+  original_command: sudo curl -sSL https://raw.githubusercontent.com/ros2/ros2/humble/keys.asc
+    | gpg --dearmor > /usr/share/keyrings/ros2-archive-keyring.gpg
+  fixed_command: sudo rm /usr/share/keyrings/ros2-archive-keyring.gpg && sudo curl
+    -sSL https://raw.githubusercontent.com/ros2/ros2/humble/keys.asc | gpg --dearmor
+    | sudo tee /usr/share/keyrings/ros2-archive-keyring.gpg > /dev/null
+  learned_at: '2026-06-24T13:09:44.812612'
+  confidence: 0.95
+- matched_error: deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu
+    jammy main
+  os: ubuntu
+  original_command: sudo echo "deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2-latest.list
+  fixed_command: sudo sh -c 'echo "deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | tee /etc/apt/sources.list.d/ros2-latest.list'
+  learned_at: '2026-06-24T13:09:49.152785'
+  confidence: 0.95
+- matched_error: 'bash: line 1: 52892 Killed                  sudo -S -p '''' echo
+    "deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg] http://packages.ros.org/ros2/ubuntu'
+  os: ubuntu
+  original_command: sudo echo "deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list
+    > /dev/null
+  fixed_command: sudo bash -c "echo 'deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/ros2.list"
+  learned_at: '2026-06-24T13:57:26.271699'
+  confidence: 0.9
+- matched_error: ''
+  os: ubuntu
+  original_command: sudo echo "deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2-latest.list
+  fixed_command: sudo bash -c "echo 'deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main' > /etc/apt/sources.list.d/ros2-latest.list"
+  learned_at: '2026-06-24T14:14:32.566608'
+  confidence: 0.9
+- matched_error: 'E: Conflicting values set for option Signed-By regarding source
+    http://packages.ros.org/ros2/ubuntu/ jammy: /usr/share/keyrings/ros2-archive-keyring.gpg
+    != ----'
+  os: ubuntu
+  original_command: sudo apt-get update
+  fixed_command: ls -l /etc/apt/sources.list.d/ros2-*.list
+  learned_at: '2026-06-24T14:14:41.037178'
+  confidence: 0.8
+- matched_error: 'E: Could not get lock /var/lib/dpkg/lock-frontend. It is held by
+    process 15500 (unattended-upgr)'
+  os: ubuntu
+  original_command: sudo apt-get install -y curl gnupg2 lsb-release
+  fixed_command: sudo fuser -k /var/lib/dpkg/lock-frontend
+  learned_at: '2026-06-29T14:48:19.790065'
+  confidence: 0.95
+- matched_error: 'sudo: no password was provided'
+  os: ubuntu
+  original_command: sudo echo "deb [signed-by=/usr/share/keyrings/ros2-archive-keyring.gpg]
+    http://packages.ros.org/ros2/ubuntu $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/ros2.list
+    > /dev/null
+  fixed_command: echo 'Passwordless sudo is required for this script to work. Please
+    configure your system to allow passwordless sudo for the user running the script.'
+  learned_at: '2026-06-29T15:06:15.880638'
+  confidence: 1.0
+- matched_error: --2026-06-29 15:58:29--  http://example.com/Document.pdf
+  os: ubuntu
+  original_command: wget http://example.com/Document.pdf
+  fixed_command: curl -O http://example.com/Document.pdf
+  learned_at: '2026-06-29T15:58:32.893581'
+  confidence: 0.8
+- matched_error: --2026-06-29 16:54:36--  https://example.com/software.tar.gz
+  os: ubuntu
+  original_command: wget https://example.com/software.tar.gz
+  fixed_command: curl -O https://example.com/software.tar.gz
+  learned_at: '2026-06-29T16:54:40.494734'
+  confidence: 0.8
+- matched_error: 'gzip: stdin: not in gzip format'
+  os: ubuntu
+  original_command: tar -xzf software.tar.gz
+  fixed_command: file software.tar.gz && case $(file software.tar.gz | awk '{print
+    $2}') in 'ASCII') echo 'This is a text file, not a tar.gz archive.';; 'Zip') unzip
+    software.tar.gz;; esac
+  learned_at: '2026-06-29T16:54:45.412643'
+  confidence: 0.9
+- matched_error: 'fatal: destination path ''ns-3-dev'' already exists and is not an
+    empty directory.'
+  os: ubuntu
+  original_command: git clone https://gitlab.com/nsnam/ns-3-dev.git && cd ns-3-dev
+  fixed_command: rm -rf ns-3-dev && git clone https://gitlab.com/nsnam/ns-3-dev.git
+    && cd ns-3-dev
+  learned_at: '2026-07-01T16:41:39.157925'
+  confidence: 1.0
+- matched_error: 'bash: line 1: ./ns3: No such file or directory'
+  os: ubuntu
+  original_command: ./ns3 configure --enable-examples --enable-tests
+  fixed_command: cd ns-3-dev && ./ns3 configure --enable-examples --enable-tests
+  learned_at: '2026-07-01T16:53:21.039787'
+  confidence: 0.95

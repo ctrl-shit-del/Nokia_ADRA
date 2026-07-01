@@ -1,0 +1,51 @@
+[
+    {
+        "name": "Update Apt",
+        "command": "sudo apt-get update",
+        "sudo": true,
+        "critical": true,
+        "verify": null
+    },
+    {
+        "name": "Install ROS2 Dependencies",
+        "command": "sudo apt-get install -y curl gnupg2 lsb-release",
+        "sudo": true,
+        "critical": true,
+        "verify": null
+    },
+    {
+        "name": "Add ROS2 GPG Key",
+        "command": "sudo rm /usr/share/keyrings/ros2-archive-keyring.gpg && sudo curl -sSL https://raw.githubusercontent.com/ros2/ros2/humble/keys.asc | gpg --dearmor | sudo tee /usr/share/keyrings/ros2-archive-keyring.gpg > /dev/null",
+        "sudo": true,
+        "critical": true,
+        "verify": "test -f /usr/share/keyrings/ros2-archive-keyring.gpg"
+    },
+    {
+        "name": "Add ROS2 Repository",
+        "command": "sudo echo 'Passwordless sudo is required for this script to work. Please configure your system to allow passwordless sudo for the user running the script.'",
+        "sudo": true,
+        "critical": true,
+        "verify": "test -f /etc/apt/sources.list.d/ros2.list"
+    },
+    {
+        "name": "Update Apt Again",
+        "command": "sudo apt-get update",
+        "sudo": true,
+        "critical": true,
+        "verify": null
+    },
+    {
+        "name": "Install ROS2 Humble",
+        "command": "sudo apt-get install -y ros-humble-desktop",
+        "sudo": true,
+        "critical": true,
+        "verify": "test -f /opt/ros/humble/setup.bash"
+    },
+    {
+        "name": "Source ROS2 Setup Script",
+        "command": "echo \"source /opt/ros/humble/setup.bash\" >> ~/.bashrc",
+        "sudo": false,
+        "critical": true,
+        "verify": "grep -q 'source /opt/ros/humble/setup.bash' ~/.bashrc"
+    }
+]

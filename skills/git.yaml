@@ -1,0 +1,9 @@
+description: Git - version control system
+check_cmd: git --version 2>&1
+install:
+  ubuntu:
+  - sudo apt-get update -y
+  - sudo apt-get install -y git
+  rhel:
+  - sudo yum install -y git
+verify_cmd: git --version 2>&1 | head -n 1

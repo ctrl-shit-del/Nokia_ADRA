@@ -1,0 +1,51 @@
+[
+    {
+        "name": "Update Apt",
+        "command": "sudo DEBIAN_FRONTEND=noninteractive apt-get update -y",
+        "sudo": true,
+        "critical": true,
+        "verify": null
+    },
+    {
+        "name": "Install Dependencies",
+        "command": "sudo DEBIAN_FRONTEND=noninteractive apt-get install -y build-essential git python3.12 python3.12-venv python3.12-dev cmake pkg-config libsqlite3-dev libxml2-dev libbz2-dev libssl-dev libc-ares-dev libgsl-dev libgtk-3-dev",
+        "sudo": true,
+        "critical": true,
+        "verify": null
+    },
+    {
+        "name": "Clone ns-3",
+        "command": "rm -rf ns-3-dev && git clone https://gitlab.com/nsnam/ns-3-dev.git && cd ns-3-dev",
+        "sudo": false,
+        "critical": true,
+        "verify": "ls -d ns-3-dev"
+    },
+    {
+        "name": "Set Up Python Environment",
+        "command": "python3.12 -m venv ns3venv && source ns3venv/bin/activate && python -m pip install --upgrade pip && pip install sionna==1.2.0 sionna-rt==1.2.0 pybind11==2.11.1 cppyy==3.5.0 && echo 'source ns3venv/bin/activate' >> ~/.bashrc",
+        "sudo": false,
+        "critical": true,
+        "verify": "which python3.12 && python3.12 -m venv ns3venv && source ns3venv/bin/activate && python -m pip install --upgrade pip && pip install sionna==1.2.0 sionna-rt==1.2.0 pybind11==2.11.1 cppyy==3.5.0"
+    },
+    {
+        "name": "Configure ns-3",
+        "command": "cd ns-3-dev && ./ns3 configure --enable-examples --enable-tests",
+        "sudo": false,
+        "critical": true,
+        "verify": "ls -d ns-3.45"
+    },
+    {
+        "name": "Build ns-3",
+        "command": "cd ns-3-dev && ./ns3 build",
+        "sudo": false,
+        "critical": true,
+        "verify": "ls -d ns-3.45/build"
+    },
+    {
+        "name": "Install ns-3",
+        "command": "cd ns-3-dev && rm -rf build && mkdir build && cd build && cmake .. && sudo cmake --build . --target install -- -j 47",
+        "sudo": false,
+        "critical": false,
+        "verify": "ls -d /usr/local/include/ns3"
+    }
+]
