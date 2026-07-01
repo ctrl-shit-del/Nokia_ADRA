@@ -350,7 +350,10 @@ async def get_build_logs() -> StreamingResponse:
 @app.get("/api/models/installed")
 def list_installed_models() -> list[dict[str, Any]]:
     models = []
-    for p in MODELS_DIR.glob("**/*.gguf"):
+    for p in MODELS_DIR.rglob("*"):
+        if not p.is_file() or p.suffix.lower() != ".gguf":
+            continue
+            
         stat = p.stat()
         # Parse quantization info from filename
         quant = "unknown"
@@ -360,7 +363,7 @@ def list_installed_models() -> list[dict[str, Any]]:
             quant = match.group(1).upper()
             
         models.append({
-            "filename": p.name,
+            "filename": str(p.relative_to(MODELS_DIR)),
             "path": str(p),
             "size_bytes": stat.st_size,
             "size_gb": round(stat.st_size / (1024 * 1024 * 1024), 2),
