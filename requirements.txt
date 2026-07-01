@@ -14,3 +14,7 @@ paramiko>=3.3.0
 pypdf>=3.17.0
 pyyaml>=6.0
 requests>=2.31.0
+
+# Process Management & HuggingFace
+psutil>=5.9.0
+huggingface_hub>=0.16.0

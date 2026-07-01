@@ -584,13 +584,20 @@
       );
     };
 
-    const InstallerTab = ({ config }) => {
+    const InstallerTab = ({ config, logs, setLogs }) => {
       const [steps, setSteps] = useState([]);
       const [loading, setLoading] = useState(false);
       const [expanded, setExpanded] = useState({});
       const [errorMsg, setErrorMsg] = useState(null);
+      const terminalEndRef = useRef(null);
       
       const toggle = (id) => setExpanded(prev => ({...prev, [id]: !prev[id]}));
+
+      useEffect(() => {
+        if (terminalEndRef.current) {
+          terminalEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, [logs]);
 
       const runInstaller = async () => {
         setLoading(true);
@@ -626,68 +633,105 @@
       };
 
       return (
-        <div className="bg-white border border-slate-200 rounded-lg shadow-sm h-full flex flex-col overflow-hidden">
-          <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
-            <h3 className="font-semibold text-slate-800 text-sm">Live Execution Log</h3>
-            <div className="flex gap-4 items-center">
-               {loading && <span className="font-mono text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded border border-teal-200 animate-pulse">Running...</span>}
-               <button onClick={runInstaller} disabled={loading} className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2">
-                  {loading && <IconLoader className="w-4 h-4 text-white" />}
-                  Run Installer
-               </button>
+        <div className="flex flex-col lg:flex-row gap-4 h-full overflow-hidden w-full">
+          {/* Left panel: Checklist */}
+          <div className="bg-white border border-slate-200 rounded-lg shadow-sm flex-1 flex flex-col overflow-hidden h-full">
+            <div className="p-3 border-b border-slate-200 bg-slate-50 flex justify-between items-center shrink-0">
+              <h3 className="font-semibold text-slate-800 text-sm font-sans">Live Execution Checklist</h3>
+              <div className="flex gap-4 items-center">
+                 {loading && <span className="font-mono text-xs text-teal-600 bg-teal-50 px-2 py-1 rounded border border-teal-200 animate-pulse">Running...</span>}
+                 <button onClick={runInstaller} disabled={loading} className="bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors flex items-center gap-2">
+                    {loading && <IconLoader className="w-4 h-4 text-white" />}
+                    Run Installer
+                 </button>
+              </div>
             </div>
-          </div>
-          <div className="overflow-auto flex-1 p-4 bg-slate-50/50">
-            <div className="space-y-4">
-              {errorMsg && (
-                 <div className="bg-rose-50 border border-rose-200 rounded p-4 text-rose-800 text-sm">
-                   <strong>Error: </strong> {errorMsg}
-                 </div>
-              )}
-              {steps.map((step, idx) => (
-                <div key={idx} className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
-                  <div 
-                    className={`px-4 py-3 flex items-center gap-3 cursor-pointer select-none ${step.status === 'failed' ? 'bg-rose-50/30' : ''}`}
-                    onClick={() => step.attempts && toggle(idx)}
-                  >
-                    <div className="shrink-0 w-5 h-5 flex items-center justify-center">
-                      <StatusIcon status={step.status} />
+            <div className="overflow-auto flex-1 p-4 bg-slate-50/50">
+              <div className="space-y-4">
+                {errorMsg && (
+                   <div className="bg-rose-50 border border-rose-200 rounded p-4 text-rose-800 text-sm">
+                     <strong>Error: </strong> {errorMsg}
+                   </div>
+                )}
+                {steps.map((step, idx) => (
+                  <div key={idx} className="bg-white border border-slate-200 rounded-md shadow-sm overflow-hidden">
+                    <div 
+                      className={`px-4 py-3 flex items-center gap-3 cursor-pointer select-none ${step.status === 'failed' ? 'bg-rose-50/30' : ''}`}
+                      onClick={() => step.attempts && toggle(idx)}
+                    >
+                      <div className="shrink-0 w-5 h-5 flex items-center justify-center">
+                        <StatusIcon status={step.status} />
+                      </div>
+                      <span className="font-medium text-sm text-slate-800 flex-1">{step.name || step.action}</span>
+                      <span className="shrink-0"><StatusBadge status={step.status} /></span>
+                      {step.attempts && (
+                        <span className="shrink-0 text-slate-400">
+                          {expanded[idx] ? <IconChevronDown /> : <IconChevronRight />}
+                        </span>
+                      )}
                     </div>
-                    <span className="font-medium text-sm text-slate-800 flex-1">{step.name || step.action}</span>
-                    <span className="shrink-0"><StatusBadge status={step.status} /></span>
-                    {step.attempts && (
-                      <span className="shrink-0 text-slate-400">
-                        {expanded[idx] ? <IconChevronDown /> : <IconChevronRight />}
-                      </span>
-                    )}
-                  </div>
-                  
-                  {step.attempts && expanded[idx] && (
-                    <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-4">
-                      {step.attempts.map((att, i) => (
-                        <div key={i} className="relative pl-6 border-l-2 border-slate-200">
-                          <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-slate-50"></div>
-                          <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Attempt {att.attempt || (i+1)}</div>
-                          <div className="bg-[#0F172A] rounded p-3 mb-2 overflow-x-auto shadow-inner">
-                            <div className="font-mono text-[12px] text-teal-400 mb-1">$ {att.command}</div>
-                            <div className={`font-mono text-[12px] whitespace-pre-wrap ${att.output && att.output.includes('Error') ? 'text-rose-400' : 'text-slate-300'}`}>{att.output || 'No output'}</div>
-                          </div>
-                          <div className="bg-indigo-50 border border-indigo-100 rounded p-3 text-sm flex gap-3 items-start">
-                            <span className="shrink-0 mt-0.5">🧠</span>
-                            <div>
-                              <div className="font-semibold text-indigo-900 text-xs uppercase mb-0.5">Agent Diagnosis</div>
-                              <div className="text-indigo-800 leading-relaxed">{att.diagnosis || 'None'}</div>
+                    
+                    {step.attempts && expanded[idx] && (
+                      <div className="border-t border-slate-200 bg-slate-50 p-4 space-y-4">
+                        {step.attempts.map((att, i) => (
+                          <div key={i} className="relative pl-6 border-l-2 border-slate-200">
+                            <div className="absolute -left-[5px] top-1.5 w-2 h-2 rounded-full bg-slate-400 ring-4 ring-slate-50"></div>
+                            <div className="text-xs font-semibold text-slate-500 mb-2 uppercase tracking-wide">Attempt {att.attempt || (i+1)}</div>
+                            <div className="bg-[#0F172A] rounded p-3 mb-2 overflow-x-auto shadow-inner">
+                              <div className="font-mono text-[12px] text-teal-400 mb-1">$ {att.command}</div>
+                              <div className={`font-mono text-[12px] whitespace-pre-wrap ${att.output && att.output.includes('Error') ? 'text-rose-400' : 'text-slate-300'}`}>{att.output || 'No output'}</div>
+                            </div>
+                            <div className="bg-indigo-50 border border-indigo-100 rounded p-3 text-sm flex gap-3 items-start">
+                              <span className="shrink-0 mt-0.5">🧠</span>
+                              <div>
+                                <div className="font-semibold text-indigo-900 text-xs uppercase mb-0.5">Agent Diagnosis</div>
+                                <div className="text-indigo-800 leading-relaxed">{att.diagnosis || 'None'}</div>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-              {steps.length === 0 && !loading && !errorMsg && (
-                <div className="text-center py-12 text-slate-400 italic">No execution data yet. Click Run Installer to begin.</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {steps.length === 0 && !loading && !errorMsg && (
+                  <div className="text-center py-12 text-slate-400 italic">No execution data yet. Click Run Installer to begin.</div>
+                )}
+              </div>
+            </div>
+          </div>
+          {/* Right panel: Live Terminal Console */}
+          <div className="bg-[#0F172A] border border-slate-800 text-slate-100 rounded-lg shadow-md w-full lg:w-[450px] xl:w-[500px] flex flex-col overflow-hidden shrink-0 h-full">
+            <div className="p-3 border-b border-slate-800 bg-slate-900/50 flex justify-between items-center shrink-0 select-none">
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                <span className="text-xs font-bold text-slate-300 font-mono">live_console.log</span>
+              </div>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => {
+                    navigator.clipboard.writeText(logs);
+                    alert("Console logs copied to clipboard!");
+                  }} 
+                  className="text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-800 px-2.5 py-1 rounded transition-colors"
+                >
+                  Copy
+                </button>
+                <button 
+                  onClick={() => setLogs("")} 
+                  className="text-[10px] font-bold text-slate-400 hover:text-slate-200 bg-slate-800 px-2.5 py-1 rounded transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 p-4 overflow-y-auto font-mono text-[11px] leading-relaxed text-slate-300 select-text">
+              {logs ? (
+                <div className="whitespace-pre-wrap">{logs}</div>
+              ) : (
+                <div className="text-slate-500 italic">No console logs streamed yet. Logs will flow here when agents run.</div>
               )}
+              <div ref={terminalEndRef} />
             </div>
           </div>
         </div>
@@ -1045,7 +1089,7 @@
               {activeTab === 'requirements' && <RequirementsTab config={config} />}
               {activeTab === 'inventory' && <InventoryTab config={config} />}
               {activeTab === 'packages' && <PackagesTab config={config} />}
-              {activeTab === 'installer' && <InstallerTab config={config} />}
+              {activeTab === 'installer' && <InstallerTab config={config} logs={logs} setLogs={setLogs} />}
               {activeTab === 'report' && <ReportTab config={config} />}
               </div>
           </main>

@@ -15,6 +15,7 @@ The deployment pipeline consists of four sequential agents:
 
 ## Data & State
 - **Local LLM Layer**: Powered by `llama-server` through its OpenAI-compatible `/v1/chat/completions` endpoint. Set `ADRA_LLAMACPP_URL` and `ADRA_LLAMACPP_MODEL` to override the defaults. **New:** If the LLM server is unavailable, the system gracefully degrades to a mock-model mode, ensuring the UI remains functional for demonstration and testing.
+- **llama.cpp Manager**: A self-contained local web application (`llamacpp_manager/`) that automates compiling `llama-server` (with/without CUDA), downloading GGUF models directly from HuggingFace (supporting split files), and starting, stopping, and monitoring running `llama-server` instances. Discovered or started models can be registered directly with ADRA.
 - **Audit Database**: A local SQLite database (`adra_audit.db`) logs every command, SSH output, and LLM exchange (diagnostic reasonings, commands chosen) for complete traceability and debugging.
 - **Requirement Profiles**: Known/custom versions are stored in `requirement_profiles.db`; selecting a known profile writes `requirements.json` without an LLM or vector DB call.
 - **Vector DB**: Chroma DB (stored in `db/chroma_db/`) used for document embedding and RAG queries.
@@ -65,9 +66,16 @@ Navigate to `http://127.0.0.1:8000` to access the ADRA Command Center. The UI is
 * **Requirements Tab:** Dynamically fetch version profiles or upload custom HTML/PDF documentation to trigger the RAG pipeline.
 * **Inventory Tab:** Enter target SSH credentials to trigger live server gap analysis.
 * **Packages Tab:** Review required package updates and acknowledge hardware risks based on actual `inventory.json` state.
-* **Installer Tab:** Trigger the full installation flow and watch live agent execution logs and LLM diagnoses stream in real-time.
+* **Installer Tab:** Trigger the full installation flow and watch live agent execution logs, step checklists, and active console output tailing in real-time.
 
-**4. Run Agents via CLI (Alternative):**
+**4. Run the llama.cpp Manager GUI:**
+Manage compiling llama.cpp, downloading GGUF models directly from HuggingFace, and starting/monitoring llama-server instances:
+```bash
+uvicorn llamacpp_manager.main:app --host 0.0.0.0 --port 8090 --reload
+```
+Navigate to `http://127.0.0.1:8090` to start managing models.
+
+**5. Run Agents via CLI (Alternative):**
 You can also run the pipeline sequentially via the command line:
 ```bash
 python3 requirements_agent.py
@@ -77,7 +85,7 @@ python3 installer_agent.py
 ```
 *Note: The CLI agents will prompt you for the SSH credentials of the target server upon execution and feature interactive prompts to override deployment blockers.*
 
-**5. View Audit Logs & Output:**
+**6. View Audit Logs & Output:**
 Query the SQLite database to trace the LLM's automated diagnostic and repair steps:
 ```bash
 sqlite3 adra_audit.db "SELECT item, attempt_num, status, content FROM events WHERE agent='packages_agent' ORDER BY id;"
