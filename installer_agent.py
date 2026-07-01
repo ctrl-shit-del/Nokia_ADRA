@@ -104,6 +104,7 @@ Each object must have exactly these keys:
 CRITICAL RULE 1: Do NOT place `sudo` on the right side of a pipe (e.g. avoid `curl | sudo bash` or `echo | sudo tee`). Instead, wrap the entire command or the pipe sequence in a sudo bash session (e.g. `sudo bash -c 'curl | bash'`), or write to files safely without pipes.
 CRITICAL RULE 2: If you need to set environment variables or source a script (e.g. `source /opt/ros/humble/setup.bash`), you MUST append it to ~/.bashrc using `echo \"source ...\" >> ~/.bashrc` instead of just running it. The command will only persist if you write it to ~/.bashrc.
 CRITICAL RULE 3: Each step runs in a NEW stateless SSH session. Any `cd` or `export` commands will NOT persist to the next step. If a command needs to run inside a specific directory (like a cloned repository), you MUST include the `cd` within the SAME command (e.g., `cd ns-3-dev && ./ns3 configure`).
+CRITICAL RULE 4: NEVER generate a step to run `apt-get upgrade` or `yum upgrade`. Only use `update` and explicitly `install` the required packages. DEBIAN_FRONTEND=noninteractive must be set for apt-get.
 
 Output ONLY a raw JSON array. No markdown fences, no explanation.
 [
@@ -191,9 +192,9 @@ def execute_ssh(
     else:
         stdin, stdout, stderr = client.exec_command(command)
 
-    exit_code = stdout.channel.recv_exit_status()
     out = stdout.read().decode("utf-8", errors="replace").strip()
     err = stderr.read().decode("utf-8", errors="replace").strip()
+    exit_code = stdout.channel.recv_exit_status()
     combined = "\n".join(filter(None, [out, err]))
 
     if exit_code != 0:

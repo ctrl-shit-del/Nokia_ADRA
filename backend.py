@@ -313,9 +313,9 @@ def run_terminal_command(payload: AgentContext) -> dict[str, Any]:
             client.connect(hostname=host, port=port, username=username, timeout=10)
             
         stdin, stdout, stderr = client.exec_command(command)
-        exit_code = stdout.channel.recv_exit_status()
         out = stdout.read().decode("utf-8", errors="replace")
         err = stderr.read().decode("utf-8", errors="replace")
+        exit_code = stdout.channel.recv_exit_status()
         combined = "\\n".join(filter(None, [out, err]))
         
         if combined:

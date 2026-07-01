@@ -135,9 +135,9 @@ def execute_ssh(client: paramiko.SSHClient, command: str) -> tuple[int, str]:
     """Run a command over SSH and return (exit_code, combined_output)."""
     print(f"  [SSH] Executing: `{command}`")
     _, stdout, stderr = client.exec_command(command)
-    exit_code = stdout.channel.recv_exit_status()
     out = stdout.read().decode("utf-8").strip()
     err = stderr.read().decode("utf-8").strip()
+    exit_code = stdout.channel.recv_exit_status()
     combined = out if exit_code == 0 else (out + " " + err).strip()
     return exit_code, combined
 
