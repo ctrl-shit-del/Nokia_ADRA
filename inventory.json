@@ -2,37 +2,43 @@
     "hardware": [
         {
             "item": "cpu_cores",
-            "required": "8",
+            "required": "2",
             "found": "48",
             "status": "Met"
         },
         {
             "item": "ram_gb",
-            "required": "8",
+            "required": "4",
             "found": "257370",
+            "status": "Met"
+        },
+        {
+            "item": "disk_gb",
+            "required": "10",
+            "found": "915G",
+            "status": "Met"
+        },
+        {
+            "item": "disk_type",
+            "required": "SSD",
+            "found": "nvme0n1p1 vfat 260M /boot/efi SYSTEM",
             "status": "Met"
         }
     ],
     "software": [
         {
             "item": "os_name",
-            "required": "Ubuntu 22.04 LTS",
+            "required": "Ubuntu 22.04",
             "found": "Ubuntu 22.04.5 LTS",
             "status": "Met"
         },
         {
-            "item": "python",
-            "required": "3.12",
-            "found": "3.10.12",
-            "status": "Met"
-        },
-        {
-            "item": "g++",
-            "required": "11.0",
-            "found": "11.4.0",
+            "item": "curl",
+            "required": "latest",
+            "found": "/usr/bin/curl",
             "status": "Met"
         }
     ],
     "malicious_flags": [],
-    "source": "upload:ns-3-installation.pdf:30400f936d97e4b62074e5f0f005b5cb347fc4b29691cab165cf70381ff8268b"
+    "source": "profile:ROS2 Humble (Testing)"
 }
