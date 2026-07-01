@@ -350,9 +350,14 @@ async def get_build_logs() -> StreamingResponse:
 @app.get("/api/models/installed")
 def list_installed_models() -> list[dict[str, Any]]:
     models = []
-    for p in MODELS_DIR.rglob("*"):
-        if not p.is_file() or p.suffix.lower() != ".gguf":
-            continue
+    for root, dirs, files in os.walk(MODELS_DIR, followlinks=True):
+        for file in files:
+            if not file.lower().endswith(".gguf"):
+                continue
+                
+            p = Path(root) / file
+            if not p.is_file():
+                continue
             
         stat = p.stat()
         # Parse quantization info from filename
