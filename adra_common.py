@@ -107,8 +107,8 @@ def discover_model() -> str:
                     matched = True
                     break
             if not matched:
-                print(f"Validation Error: Model '{_MODEL_OVERRIDE}' not found in server. Falling back to mock-model.")
-                return "mock-model"
+                print(f"Warning: Model override '{_MODEL_OVERRIDE}' not found. Using '{detected_model}'.")
+                selected_model = detected_model
             
         print(f"Server URL: {base_url}")
         print(f"Detected model: {detected_model}")
@@ -187,8 +187,8 @@ def call_llm(prompt: str, tokens: TokenCounter | None = None, timeout: int = 900
             }), usage
         elif "plan" in lower_prompt or "packages" in lower_prompt:
             return json.dumps({"status": "planned"}), usage
-        elif "step" in lower_prompt or "installer" in lower_prompt:
-             return "SUCCESS: Mock installation step executed.", usage
+        elif "installer" in lower_prompt or ("step" in lower_prompt and "deploy" in lower_prompt):
+             return json.dumps([{"name": "Mock Installation Step", "command": "echo 'Mock installed'", "sudo": False, "critical": True, "verify": None}]), usage
         
         return json.dumps({"result": "Mock data"}), usage
 
